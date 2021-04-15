@@ -63,7 +63,7 @@ Requirements
 
 Author
 ------
-KAWAJI, Hideya <hideya.kawaji@riken.jp>
+KAWAJI, Hideya <h.kawaji@gmail.com>
 
 EOF
   exit 1;
