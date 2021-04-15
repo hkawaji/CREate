@@ -1,0 +1,429 @@
+#!/bin/bash
+
+set -ue
+
+mapQ=20
+threads=8
+filter_window=100
+filter_target_base=G
+ratio_Gaddition=0.89
+#infile=out/MCF-7_2M_rep1_SRR7641187_star_Aligned.sortedByCoord.out.bam
+#genome_fa=~/db/hg19/star/hg19.fa
+
+
+### define error message
+function usage()
+{
+  cat <<EOF
+
+usage: $0  -i infile.star.bam 
+           -g genome.fa 
+           -o outfile.bed.gz
+          [-q mapQ (default:20)]
+          [-n threads (default:8)]
+          [-w filter_window (default:100)]
+          [-b filter_target_base (default:G; otheriwse N)]
+          [-r ratio_Gaddition (default:0.89)]
+          [-f full_set_of_intermediate_files (default: null)]
+
+
+Count CAGE read 5'ends per CTSS by using only reads with
+unencoded "G" as possible, which is added by terminal transferase
+activity of the reverse transcriptase.
+
+STAR is assumed as the aligner that map the reads, which generate
+local alignments and mismatches at 5'-end are reported as soft clip.
+It is sometime impossible to distinguish if a read has unencoded G or
+not, in case that the genomic DNA at 1bp upstream of genuine TSS is
+also "G". In such cases, surrounding regions (windows) are referred
+to decide if they have to be discarded or kept.
+
+filter_window (-w):
+  The window size to check the other reads. In case that unmatchG
+  is more than matchH in the window, the center position is likely
+  to have unencodedG.
+
+filter_target_base (-b):
+  Nucleotide the filter is applied to. In defalut, only CTSS having
+  "G" at its upstream is targeted. Optionally (-b N), all CTSS can
+  be targeted.
+
+
+Requirements
+-------------
+* samtools
+* bedtools
+* jksrc
+
+
+Author
+------
+KAWAJI, Hideya <hideya.kawaji@riken.jp>
+
+EOF
+  exit 1;
+}
+
+### handle options
+while getopts i:o:q:n:w:b:f:r:g: opt
+do
+  case ${opt} in
+  i) infile=${OPTARG};;
+  o) outfile=${OPTARG};;
+  q) mapQ=${OPTARG};;
+  n) threads=${OPTARG};;
+  w) filter_window=${OPTARG};;
+  b) filter_target_base=${OPTARG};;
+  f) outfile_full=${OPTARG};;
+  r) ratio_Gaddition=${OPTARG};;
+  g) genome_fa=${OPTARG};;
+  *) usage;;
+  esac
+done
+
+if [ ! -n "${infile-}" ]; then usage; fi
+if [ ! -n "${outfile-}" ]; then usage; fi
+if [ ! -n "${genome_fa-}" ]; then usage; fi
+
+### setup tmpdir
+tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+
+
+function splitBam2UnmatchMatchOthers()
+{
+# init
+samtools view -H ${infile} > ${tmpdir}/fwd_unmatchG.sam
+samtools view -H ${infile} > ${tmpdir}/fwd_matchG.sam
+samtools view -H ${infile} > ${tmpdir}/fwd_matchH.sam
+samtools view -H ${infile} > ${tmpdir}/fwd_others.sam
+samtools view -H ${infile} > ${tmpdir}/rev_unmatchG.sam
+samtools view -H ${infile} > ${tmpdir}/rev_matchG.sam
+samtools view -H ${infile} > ${tmpdir}/rev_matchH.sam
+samtools view -H ${infile} > ${tmpdir}/rev_others.sam
+samtools view -H ${infile} \
+| awk '{match($0, /SN:([a-zA-Z0-9_]+)\s+LN:([0-9]+)/, buf); if(RLENGTH>=0){print buf[1]"\t"buf[2]}}' \
+> ${tmpdir}/chrom_sizes
+
+# fwd
+samtools view -F 16 -q ${mapQ} ${infile} \
+| awk \
+    --assign fileU=${tmpdir}/fwd_unmatchG.sam \
+    --assign fileM=${tmpdir}/fwd_matchG.sam  \
+    --assign fileH=${tmpdir}/fwd_matchH.sam  \
+    --assign fileO=${tmpdir}/fwd_others.sam  \
+  '{
+    unmatchN = "";matchN = "";
+    match($6,/^([0-9]+)S/,buf)
+
+    if (RLENGTH>=0){ unmatchN = substr($10,0,buf[1]) }
+    else{ matchN = substr($10,0,1) }
+
+    if (unmatchN == "G") { print $0 >> fileU }
+    else if (matchN == "G") { print $0 >> fileM }
+    else if (matchN != "") { print $0 >> fileH }
+    else { print $0 >> fileO }
+  }'
+
+# rev
+samtools view -f 16 -q ${mapQ} ${infile} \
+| awk \
+    --assign fileU=${tmpdir}/rev_unmatchG.sam \
+    --assign fileM=${tmpdir}/rev_matchG.sam  \
+    --assign fileH=${tmpdir}/rev_matchH.sam  \
+    --assign fileO=${tmpdir}/rev_others.sam  \
+  '{
+    unmatchN = "";matchN = "";
+    match($6,/([0-9]+)S$/,buf)
+
+    if (RLENGTH>=0){unmatchN = substr($10, length($10) - buf[1] + 1) }
+    else { matchN = substr($10,length($10) ) }
+
+    if (unmatchN == "C") {print $0 >> fileU }
+    else if (matchN == "C") {print $0 >> fileM }
+    else if (matchN != "")  {print $0 >> fileH }
+    else {print $0 >> fileO }
+  }'
+
+# post processing
+for X in \
+  ${tmpdir}/fwd_unmatchG.sam \
+  ${tmpdir}/fwd_matchG.sam  \
+  ${tmpdir}/fwd_matchH.sam  \
+  ${tmpdir}/fwd_others.sam \
+  ${tmpdir}/rev_unmatchG.sam \
+  ${tmpdir}/rev_matchG.sam  \
+  ${tmpdir}/rev_matchH.sam  \
+  ${tmpdir}/rev_others.sam
+do
+  cat $X \
+  | bamToBed \
+  | sort -k1,1 -k2,2n --parallel=$threads \
+  | genomeCoverageBed -5 -bg -i - -g ${tmpdir}/chrom_sizes \
+  > ${X}.bg
+
+  bedGraphToBigWig ${X}.bg ${tmpdir}/chrom_sizes ${X}.bw
+done
+}
+
+
+function correctG_fwd()
+{
+# input: chrom=$1;start=$2;end=$3;U=$4;M=$5;vU=$6;vM=$7;vH=$8;nuc=$9;
+grep -v ^# \
+| awk --assign ratio_Gaddition=$ratio_Gaddition --assign filter_target_base=$filter_target_base \
+  'BEGIN{
+    OFS="\t"
+    r = (1 / ratio_Gaddition) * (1 - ratio_Gaddition)
+    prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1;
+  }{
+    N = 0
+    chrom=$1; start=$2; end=$3;
+    U=$4; M=$5; wU=$6; wM=$7; wH=$8; nuc=$9;
+
+    if (prevChrom != chrom)
+    {
+      prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1
+    }
+
+    if ( (prevStart + 1) != start )
+    {
+      if ( (prevNuc == "G") || (prevNuc == "g") )
+      {
+        N = int( prevM - prevN * r )
+        if (N < 0){ N = 0 }
+        if (prevWU <= prevWH){ N = 0 }
+        if ((filter_target_base == "N") && (prevWU <= prevWH)){ N = 0 }
+        print prevChrom, prevStart+1, prevStart+2, 0, 0, prevWU, prevWM, prevWH, "*", N, 0
+      }
+      N = U
+
+    } else if (( prevNuc != "G" ) && (prevNuc != "g" )) {
+
+      N = U
+
+    } else {
+
+      N = int( prevM - prevN * r )
+      if (N < 0){ N = 0 }
+      if ((filter_target_base == "G") && (wU <= wH)){ N = 0 }
+
+    }
+    if ((filter_target_base == "N") && (wU <= wH)){ N = 0 }
+
+    print $0, N, (N == U)
+    prevChrom=chrom; prevStart=start;
+    prevU  = U ; prevM  = M ;
+    prevWU = wU; prevWM = wM; prevWH = wH;
+    prevN = N; prevNuc = nuc;
+}'
+}
+
+
+function correctG_rev()
+{
+# input: chrom=$1;start=$2;end=$3;U=$4;M=$5;vU=$6;vM=$7;vH=$8;nuc=$9;
+grep -v ^# \
+| awk --assign ratio_Gaddition=$ratio_Gaddition --assign filter_target_base=$filter_target_base \
+  'BEGIN{
+    OFS="\t"
+    r = (1 / ratio_Gaddition) * (1 - ratio_Gaddition)
+    prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1;
+  }{
+    N = 0
+    chrom=$1;start=$2;end=$3;
+    U=$4; M=$5; wU=$6; wM=$7; wH=$8; nuc=$9;
+
+    if (prevChrom != chrom)
+    {
+      prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1
+    }
+
+    if ( (prevStart - 1) != start )
+    {
+      if ( (prevNuc == "C") || (prevNuc == "c") )
+      {
+        N = int( prevM - prevN * r )
+        if (N < 0){ N = 0 }
+        if (prevWU <= prevWH){ N = 0 }
+        if ((filter_target_base == "N") && (prevWU <= prevWH)){ N = 0 }
+        print chrom, prevStart-1, prevStart, 0, 0, prevWU, prevWM, prevWH, "*", N, 0
+      }
+      N = U
+
+    } else if (( prevNuc != "C" ) && (prevNuc != "c" )) {
+
+      N = U
+
+    } else {
+
+      N = int( prevM - prevN * r )
+      if (N < 0){ N = 0 }
+      if ((filter_target_base == "G") && (wU <= wH)){ N = 0 }
+
+    }
+    if ((filter_target_base == "N") && (wU <= wH)){ N = 0 }
+
+    print $0, N, (N == U)
+    prevChrom=chrom; prevStart=start;
+    prevU = U; prevM = M;
+    prevWU = wU; prevWM = wM; prevWH = wH;
+    prevN = N; prevNuc = nuc;
+}'
+}
+
+
+function correctG()
+{
+
+printf "___correctG:fwd:prep___\n" >&2
+
+cat ${tmpdir}/fwd_unmatchG.sam.bg \
+    ${tmpdir}/fwd_matchG.sam.bg \
+| cut -f 1-3 \
+| sort -k1,1 -k2,2n --parallel=$threads \
+| mergeBed \
+| awk 'BEGIN{OFS="\t"}{
+    for (i = $2; i < $3; i++){ name=$1","i","i+1; print $1, i, i+1, name}
+  }' \
+> ${tmpdir}/fwd_target.bed
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/fwd_unmatchG.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/fwd_target.bed.wUnmatchG.bg
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/fwd_matchG.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/fwd_target.bed.wMatchG.bg
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/fwd_matchH.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/fwd_target.bed.wMatchH.bg
+
+unionBedGraphs -i \
+  ${tmpdir}/fwd_unmatchG.sam.bg \
+  ${tmpdir}/fwd_matchG.sam.bg \
+  ${tmpdir}/fwd_target.bed.wUnmatchG.bg \
+  ${tmpdir}/fwd_target.bed.wMatchG.bg \
+  ${tmpdir}/fwd_target.bed.wMatchH.bg \
+| nucBed -fi ${genome_fa} -seq -bed - \
+> ${tmpdir}/fwd_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg
+
+printf "___correctG:fwd:main___\n" >&2
+cat ${tmpdir}/fwd_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg \
+| cut -f 1-8,18 \
+| correctG_fwd \
+> ${tmpdir}/fwd_correctG.txt
+
+
+
+printf "___correctG:rev:prep___\n" >&2
+
+cat ${tmpdir}/rev_unmatchG.sam.bg \
+    ${tmpdir}/rev_matchG.sam.bg \
+| cut -f 1-3 \
+| sort -k1,1 -k2,2n --parallel=$threads \
+| mergeBed \
+| awk 'BEGIN{OFS="\t"}{
+    for (i = $2; i < $3; i++){ name=$1","i","i+1; print $1, i, i+1, name}
+  }' \
+> ${tmpdir}/rev_target.bed
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/rev_unmatchG.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/rev_target.bed.wUnmatchG.bg
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/rev_matchG.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/rev_target.bed.wMatchG.bg
+
+bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+  ${tmpdir}/rev_matchH.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+| cut -f 1,4 \
+| sed -e 's/,/\t/g' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/rev_target.bed.wMatchH.bg
+
+unionBedGraphs -i \
+  ${tmpdir}/rev_unmatchG.sam.bg \
+  ${tmpdir}/rev_matchG.sam.bg \
+  ${tmpdir}/rev_target.bed.wUnmatchG.bg \
+  ${tmpdir}/rev_target.bed.wMatchG.bg \
+  ${tmpdir}/rev_target.bed.wMatchH.bg \
+| nucBed -fi ${genome_fa} -seq -bed - \
+> ${tmpdir}/rev_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg
+
+
+printf "___correctG:fwd:main___\n" >&2
+
+cat ${tmpdir}/rev_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg \
+| cut -f 1-8,18 \
+| sort -k1,1 -k2,2nr --parallel=$threads \
+| correctG_rev \
+> ${tmpdir}/rev_correctG.txt
+
+
+
+printf "___correctG:post process___\n" >&2
+
+cat ${tmpdir}/fwd_correctG.txt \
+| cut -f 1,2,3,10 \
+| awk '{if($4>0){print}}' \
+> ${tmpdir}/fwd_correctG.bg
+bedGraphToBigWig ${tmpdir}/fwd_correctG.bg ${tmpdir}/chrom_sizes ${tmpdir}/fwd_correctG.bw
+
+cat ${tmpdir}/rev_correctG.txt \
+| cut -f 1,2,3,10 \
+| awk '{if($4>0){print}}' \
+| sort -k1,1 -k2,2n --parallel=$threads \
+> ${tmpdir}/rev_correctG.bg
+bedGraphToBigWig ${tmpdir}/rev_correctG.bg ${tmpdir}/chrom_sizes ${tmpdir}/rev_correctG.bw
+
+cat ${tmpdir}/fwd_correctG.bg \
+| awk 'BEGIN{OFS="\t"}{name=$1","$2","$3",+"; print $1,$2,$3,name,$4,"+"}' \
+> ${tmpdir}/correctG_raw.bed
+cat ${tmpdir}/rev_correctG.bg \
+| awk 'BEGIN{OFS="\t"}{name=$1","$2","$3",-"; print $1,$2,$3,name,$4,"-"}' \
+>> ${tmpdir}/correctG_raw.bed
+
+cat ${tmpdir}/correctG_raw.bed \
+| sort -k1,1 -k2,2n --parallel=$threads \
+| gzip -c \
+> ${tmpdir}/correctG.bed.gz
+rm -f ${tmpdir}/correctG_raw.bed
+}
+
+
+
+
+
+###
+### main
+###
+
+splitBam2UnmatchMatchOthers
+correctG
+
+cp -f ${tmpdir}/correctG.bed.gz ${outfile}
+if [ -n "${outfile_full-}" ]; then
+  ( cd ${tmpdir} ; tar cvf - . ) | gzip -c  > $outfile_full
+fi
+
+
+
+
