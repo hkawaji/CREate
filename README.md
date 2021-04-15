@@ -1,7 +1,7 @@
 # dtCREs: Divergently Transcribed CREs (cis-regulatory elements)
 
 Some classes of cis-regulatory elements (in particular, promoters and enhancers) are characterized
-with divergent transcription. This repo contains two tools to process CAGE data, to identify divergently
+with divergent transcription. This repo contains two scripts to process CAGE data, to identify divergently
 transcribed regions unifromly regardless the level of directionality. 
 
 * Count CAGE read 5'ends per CTSS by using only ones with unencoded "G" as possible (even if it matches to the genome), which is added by terminal transferase activity of the reverse transcriptase.
