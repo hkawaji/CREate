@@ -33,10 +33,11 @@ a read has unencoded G or not, in case that the genomic DNA at 1bp upstream
 of genuine TSS is also "G". In such cases, surrounding regions (windows)
 are referred to decide if they have to be discarded or kept.
 
-In case of G stretch region, it is not straightfowrd to know
-exact starts even if the reads are consider to represent genuine TSSs.
-This program copes the difficulty as well, by TSSs based on the assumed
-G addition ratio.
+In case of G stretch region, it is still not straightfowrd to know
+exact starts even if the reads arising from the G stretch region
+are considered to represent genuine TSSs. This program copes the
+problem by subtracting some reads based on the assumed G addition
+ratio and shifting some TSSs. 
 
 filter_window (-w):
   The window size to check the other reads. In case that unmatchG
