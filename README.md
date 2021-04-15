@@ -7,3 +7,6 @@ Two scripts for processing CAGE data:
 * Identify divergently transcribed regions, not convergent, through scanning genomic bases without TSS clustering nor peak identification.
 
 
+Author
+------
+KAWAJI, Hideya <h.kawaji@gmail.com>
