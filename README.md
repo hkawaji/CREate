@@ -1,4 +1,4 @@
-# Divergently Transcribed CREs (cis regulatory elements)
+# Divergently Transcribed CREs (dtCREs)
 
 Many class of cis-regulatory elements (such as promoters and enhancers) are transcribed
 divergently. This repo contains two tools to process CAGE data, to identify divergently
