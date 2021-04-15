@@ -1,4 +1,4 @@
-# CAGE-divergent
+# Divergent CREs
 
 This repo contains two tools for processing CAGE data:
 
