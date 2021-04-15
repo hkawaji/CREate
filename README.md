@@ -4,7 +4,7 @@ Some classes of cis-regulatory elements (in particular, promoters and enhancers)
 with divergent transcription. This repo contains two scripts to process CAGE data, to identify divergently
 transcribed regions unifromly regardless the level of directionality. 
 
-* Count CAGE read 5'ends per CTSS by using only ones with unencoded "G" as possible (even if it matches to the genome), which is added by terminal transferase activity of the reverse transcriptase.
+* Count CAGE read 5'ends per CTSS by using only ones with unencoded "G" as possible (in case the 5'-end "G" matches to the genome, it make an educated guess from the neighboring region), which is added by terminal transferase activity of the reverse transcriptase.
 * Identify divergently transcribed regions, not convergent, through scanning genomic bases without TSS clustering nor peak identification.
 
 
