@@ -7,8 +7,6 @@ threads=8
 filter_window=100
 filter_target_base=G
 ratio_Gaddition=0.89
-#infile=out/MCF-7_2M_rep1_SRR7641187_star_Aligned.sortedByCoord.out.bam
-#genome_fa=~/db/hg19/star/hg19.fa
 
 
 ### define error message
