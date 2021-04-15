@@ -4,7 +4,7 @@ set -ue
 
 mapQ=20
 threads=8
-filter_window=100
+filter_window=20
 filter_target_base=G
 ratio_Gaddition=0.89
 
@@ -19,7 +19,7 @@ usage: $0  -i infile.star.bam
            -o outfile.bed.gz
           [-q mapQ (default:20)]
           [-n threads (default:8)]
-          [-w filter_window (default:100)]
+          [-w filter_window (default:20)]
           [-b filter_target_base (default:G; otheriwse N)]
           [-r ratio_Gaddition (default:0.89)]
           [-f full_set_of_intermediate_files (default: null)]
