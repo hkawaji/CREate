@@ -9,4 +9,4 @@ Two scripts for processing CAGE data:
 
 Author
 ------
-KAWAJI, Hideya <h.kawaji@gmail.com>
+KAWAJI, Hideya
