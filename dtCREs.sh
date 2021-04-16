@@ -164,7 +164,7 @@ ctssbed_to_bg ()
     {
       for (i=$2; i < $3; i++) 
       {
-        print $1,$2,$2+1,$5
+        print $1,i,i+1,$5
       }
     }
   }'
