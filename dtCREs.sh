@@ -14,6 +14,7 @@ LC_NUMERIC=$myLoc
 
 
 
+
 ### define error message
 usage()
 {
@@ -35,6 +36,7 @@ usage: $0 <command> <args>
     [-x min_counts_in_max(default:0)]
     [-y min_counts_in_both_strand_max(default:0)]
     [-p parallel(default:20)]
+    [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
 
   Note that each of the inputt files should be
@@ -61,6 +63,7 @@ usage: $0 <command> <args>
           [-w window_size(default:200)]
           [-m outfileMax.ctss.bed.gz]
           [-p parallel(default:20)]
+          [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
   | gzip -c > output.bed.gz
 
 
@@ -159,6 +162,7 @@ EOF
 ctssbed_to_bg ()
 {
   local strand=$1
+
   awk --assign strand=$strand 'BEGIN{OFS="\t"}{
     if($6 == strand )
     {
@@ -167,7 +171,8 @@ ctssbed_to_bg ()
         print $1,i,i+1,$5
       }
     }
-  }'
+  }' \
+  | sort $SORT_OPT_BED
 }
 
 
@@ -184,28 +189,38 @@ ctss_density ()
   local infile_bw=$2
   local density_width=$3
 
-  #bigWigAverageOverBed -sampleAroundCenter=$density_width \
-  #  $infile_bw \
-  #  $infile_bed4 \
-  #  /dev/stdout \
-  #| cut -f 1,5 \
-  #| sed -e 's/,/\t/g' \
-  #| sort $SORT_OPT_BED
-
   cat ${chrom_sizes} \
   | awk --assign density_width=$density_width 'BEGIN{OFS="\t"}{print $1, density_width, $2 - density_width}' \
   > ${infile_bed4}.tmp.scope
 
   intersectBed -u -wa -a ${infile_bed4} -b ${infile_bed4}.tmp.scope \
-  > ${infile_bed4}.tmp.non_boundary
+  | split -l ${splitLines} - ${infile_bed4}.tmp.non_boundary.split.
 
-  bigWigAverageOverBed -sampleAroundCenter=$density_width \
-    $infile_bw \
-    ${infile_bed4}.tmp.non_boundary \
-    /dev/stdout \
+  ls ${infile_bed4}.tmp.non_boundary.split.* \
+  | xargs -n 1 -P ${parallel} -L 1 -I % bigWigAverageOverBed -sampleAroundCenter=$density_width $infile_bw % %.OUT
+
+  cat ${infile_bed4}.tmp.non_boundary.split.*.OUT \
   | cut -f 1,5 \
   | sed -e 's/,/\t/g' \
-  | sort $SORT_OPT_BED
+  | sort $SORT_OPT_BED \
+  | $PROG_COMP \
+  > ${infile_bed4}.tmp.non_boundary.splitMerged.COMP
+
+  rm -f ${infile_bed4}.tmp.non_boundary.split.*
+  cat ${infile_bed4}.tmp.non_boundary.splitMerged.COMP \
+  | $PROG_DECOMP
+
+
+  #intersectBed -u -wa -a ${infile_bed4} -b ${infile_bed4}.tmp.scope \
+  #> ${infile_bed4}.tmp.non_boundary
+
+  #bigWigAverageOverBed -sampleAroundCenter=$density_width \
+  #  $infile_bw \
+  #  ${infile_bed4}.tmp.non_boundary \
+  #  /dev/stdout \
+  #| cut -f 1,5 \
+  #| sed -e 's/,/\t/g' \
+  #| sort $SORT_OPT_BED
 }
 
 
@@ -219,7 +234,7 @@ ctss_density ()
 # ${tmpdir}/infile.density.rev.bg
 # ${tmpdir}/infile.density.fwd.bw
 # ${tmpdir}/infile.density.rev.bw
-# ${tmpdir}/potential_center.bg
+# ${tmpdir}/potential_center.bg.COMP
 prep_input ()
 {
   local infile=$1
@@ -246,8 +261,59 @@ prep_input ()
   | sort $SORT_OPT_BED \
   | mergeBed  -i stdin -d $window_double_size \
   | awk 'BEGIN{OFS="\t"}{ for (i=$2;i<$3;i++){print $1,i,i+1,$4} }' \
-  > ${tmpdir}/potential_center.bg
+  | $PROG_COMP \
+  > ${tmpdir}/potential_center.bg.COMP
 }
+
+
+
+acc_left ()
+{
+  local infile_bw=$1
+  local chrom_sizes=$2
+  local window_size=$3
+  local outfile=$4
+  awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+  | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
+  | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
+}
+
+
+
+acc_right ()
+{
+  local infile_bw=$1
+  local chrom_sizes=$2
+  local window_size=$3
+  local outfile=$4
+  awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+  | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
+  | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
+}
+
+
+
+acc_lr ()
+{
+  local lr=$1
+  local infile_bw=$2
+  local chrom_sizes=$3
+  local window_size=$4
+  local outfile=$5
+
+  if [ "${lr}" = "left" ]; then
+    awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+    | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
+    | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
+  elif [ "${lr}" = "right" ]; then
+    awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+    | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
+    | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
+  else
+    printf "acc_lr: no operation" >&2
+  fi
+}
+
 
 
 
@@ -259,44 +325,50 @@ accumulate_neiboring_signals ()
   local infile_rev_bw=$3
   local window_size=$4
 
-  cat $infile_center \
-  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
-  | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
-  | bigWigAverageOverBed $infile_fwd_bw /dev/stdin /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  > ${tmpdir}/accumulate_neiboring_signals_left_fwd.txt &
+  declare -A infile_bw
+  infile_bw["fwd"]=$infile_fwd_bw
+  infile_bw["rev"]=$infile_rev_bw
 
-  cat $infile_center \
-  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
-  | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
-  | bigWigAverageOverBed $infile_rev_bw /dev/stdin /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  > ${tmpdir}/accumulate_neiboring_signals_left_rev.txt &
+  for lr in left right
+  do
+    for strand in fwd rev
+    do
 
-  cat $infile_center \
-  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
-  | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
-  | bigWigAverageOverBed $infile_fwd_bw /dev/stdin /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  > ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt &
+      cat $infile_center | $PROG_DECOMP > ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.DECOMP
 
-  cat $infile_center \
-  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
-  | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
-  | bigWigAverageOverBed $infile_rev_bw /dev/stdin /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  > ${tmpdir}/accumulate_neiboring_signals_right_rev.txt &
+      chunkN=$(expr $( cat ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.DECOMP | wc -l ) / $splitLines + 1 )
+      split -n "r/${chunkN}" \
+        ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.DECOMP  \
+        ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.
+      rm -f ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.DECOMP &
+
+      export -f acc_lr
+      infbw=${infile_bw[${strand}]}
+      ls ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.* \
+      | xargs -n 1 -P ${parallel} -L 1 -I % bash -c "cat % | acc_lr ${lr} $infbw $chrom_sizes $window_size %.OUT"
+
+      cat ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.*.OUT \
+      | cut -f 1,4 \
+      | sort $SORT_OPT_NAME \
+      | $PROG_COMP \
+      > ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.COMP
+
+      rm -f ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.* &
+    done
+  done
 
   wait
 
-  cat ${tmpdir}/accumulate_neiboring_signals_left_fwd.txt \
-  | join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_left_rev.txt \
-  | join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt \
-  | join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_rev.txt
+  cat ${tmpdir}/accumulate_neiboring_signals_left_fwd.txt.COMP \
+  | $PROG_DECOMP \
+  | join -t "	" /dev/stdin <( cat ${tmpdir}/accumulate_neiboring_signals_left_rev.txt.COMP  | $PROG_DECOMP ) \
+  | join -t "	" /dev/stdin <( cat ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt.COMP | $PROG_DECOMP ) \
+  | join -t "	" /dev/stdin <( cat ${tmpdir}/accumulate_neiboring_signals_right_rev.txt.COMP | $PROG_DECOMP )
+
+  #cat ${tmpdir}/accumulate_neiboring_signals_left_fwd.txt \
+  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_left_rev.txt \
+  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt \
+  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_rev.txt
 }
 
 
@@ -341,7 +413,8 @@ find_max_score_in_left () {
     if (start < 0) {start = 0}
     print $1, start, $3, name
   }' \
-  | intersectBed -wa -wb -a stdin -b ${infile_bg} \
+  | sort $SORT_OPT_BED \
+  | intersectBed -sorted -wa -wb -a stdin -b ${infile_bg} \
   | groupBy -grp 4 -opCols 5,6,7,8 -ops collapse \
   | awk 'BEGIN{OFS="\t"}{
       orig_n = split($1, orig_a, ",")
@@ -384,7 +457,8 @@ find_max_score_in_right () {
     name=$1","$2","$3;
     print $1,$2,$3 + extend_size,name
   }' \
-  | intersectBed -wa -wb -a stdin -b ${infile_bg} \
+  | sort $SORT_OPT_BED \
+  | intersectBed -sorted -wa -wb -a stdin -b ${infile_bg} \
   | groupBy -grp 4 -opCols 5,6,7,8 -ops collapse \
   | awk 'BEGIN{OFS="\t"}{
       orig_n = split($1, orig_a, ",")
@@ -515,7 +589,8 @@ tighten_unidirectional ()
   | awk '{if($4 == 0){print $1}}' \
   | sed -e 's/,/\t/g' \
   | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1","$2","$3}' \
-  | intersectBed -wa -wb -a - -b ${tmpdir}/infile.rev.bg \
+  | sort $SORT_OPT_BED \
+  | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.rev.bg \
   | groupBy -g 1,2,3,4 -c 7 -o collapse \
   | cut -f 4,5 \
   | awk 'BEGIN{OFS="\t"}{
@@ -536,7 +611,8 @@ tighten_unidirectional ()
   | awk '{if($4 == 0){print $1}}' \
   | sed -e 's/,/\t/g' \
   | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1","$2","$3}' \
-  | intersectBed -wa -wb -a - -b ${tmpdir}/infile.fwd.bg \
+  | sort $SORT_OPT_BED \
+  | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.fwd.bg \
   | groupBy -g 1,2,3,4 -c 6 -o collapse \
   | cut -f 4,5 \
   | awk 'BEGIN{OFS="\t"}{
@@ -569,7 +645,6 @@ tighten_unidirectional ()
 }
 
 
-
 counts_fr ()
 {
   local infile=$1
@@ -583,49 +658,45 @@ counts_fr ()
   | awk -F "|" 'BEGIN{OFS="\t"}{
       print $1, $7 ,$3, $0
   }' \
+  | sort $SORT_OPT_BED \
   > ${tmpdir}/counts_fr.region_for_fwd.bed
+
 
   cat $infile \
   | sed -e 's/\t/|/g' \
   | awk -F "|" 'BEGIN{OFS="\t"}{
       print $1, $2 ,$8, $0
   }' \
+  | sort $SORT_OPT_BED \
   > ${tmpdir}/counts_fr.region_for_rev.bed
 
 
-  bigWigAverageOverBed \
-    ${tmpdir}/infile.fwd.bw  \
-    ${tmpdir}/counts_fr.region_for_fwd.bed \
-    /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  >  ${tmpdir}/counts_fr.fwd.txt &
+  for strand in fwd rev
+  do
+    chunkN=$( expr  $( cat ${tmpdir}/counts_fr.region_for_${strand}.bed | wc -l ) / $splitLines + 1 )
+    split -n "r/${chunkN}" ${tmpdir}/counts_fr.region_for_${strand}.bed ${tmpdir}/counts_fr.region_for_${strand}.bed.split.
 
-  bigWigAverageOverBed \
-    ${tmpdir}/infile.rev.bw  \
-    ${tmpdir}/counts_fr.region_for_rev.bed \
-    /dev/stdout \
-  | cut -f 1,4 \
-  | sort $SORT_OPT_NAME \
-  > ${tmpdir}/counts_fr.rev.txt &
+    ls ${tmpdir}/counts_fr.region_for_${strand}.bed.split.* \
+    | xargs -n 1 -P ${parallel} -L 1 -I % bigWigAverageOverBed ${tmpdir}/infile.${strand}.bw  % %.OUT
 
-  if [ -n "${infileMax}" ]; then
-    gunzip -c ${infileMax} \
-    | awk '{if($6 == "+"){print}}' \
-    | intersectBed -wa -wb -a ${tmpdir}/counts_fr.region_for_fwd.bed -b stdin \
+    cat ${tmpdir}/counts_fr.region_for_${strand}.bed.split.*.OUT \
+    | cut -f 1,4 \
     | sort $SORT_OPT_NAME \
-    | groupBy -grp 4 -opCols 9 -ops max \
-    | sort $SORT_OPT_NAME \
-    > ${tmpdir}/max_fr.fwd.txt &
+    >  ${tmpdir}/counts_fr.${strand}.txt
 
-    gunzip -c ${infileMax} \
-    | awk '{if($6 == "-"){print}}' \
-    | intersectBed -wa -wb -a ${tmpdir}/counts_fr.region_for_rev.bed -b stdin \
-    | sort $SORT_OPT_NAME \
-    | groupBy -grp 4 -opCols 9 -ops max \
-    | sort $SORT_OPT_NAME \
-    > ${tmpdir}/max_fr.rev.txt &
-  fi
+    rm -f cat ${tmpdir}/counts_fr.region_for_${strand}.bed.split.* &
+
+    if [ -n "${infileMax}" ]; then
+      gunzip -c ${infileMax} \
+      | awk '{if($6 == "+"){print}}' \
+      | sort $SORT_OPT_BED \
+      | intersectBed -sorted -wa -wb -a ${tmpdir}/counts_fr.region_for_${strand}.bed -b stdin \
+      | sort $SORT_OPT_NAME \
+      | groupBy -grp 4 -opCols 9 -ops max \
+      | sort $SORT_OPT_NAME \
+      > ${tmpdir}/max_fr.${strand}.txt &
+    fi
+  done
 
   wait
 
@@ -642,6 +713,7 @@ counts_fr ()
     > ${tmpdir}/counts_fr.joined.txt.tmp
     mv --force ${tmpdir}/counts_fr.joined.txt.tmp ${tmpdir}/counts_fr.joined.txt
   fi
+
 
   cat ${tmpdir}/counts_fr.joined.txt \
   | sed -e 's/|/\t/g' \
@@ -690,11 +762,12 @@ cmd_total ()
   ### setup for later
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
-  SORT_OPT_BED="--buffer-size=1G --parallel=${parallel} -k1,1 -k2,2n -k3,3n"
-  SORT_OPT_BED_NAME="--buffer-size=1G --parallel=${parallel} -k4,4d"
-  SORT_OPT_NAME="--buffer-size=1G --filesListparallel=${parallel} -k1,1d"
   mkdir -p ${tmpdir}/each
   mkdir -p ${tmpdir}/merge
+  SORT_OPT_BASE="--buffer-size=32G --batch-size=100"
+  export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
+  export SORT_OPT_BED_NAME="--buffer-size=32G --batch-size=100 -k4,4d"
+  export SORT_OPT_NAME="--buffer-size=32G --batch-size=100 -k1,1d"
 
   export -f ctssbed_to_bg
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
@@ -763,8 +836,10 @@ cmd_call ()
   ### handle options
   parallel=20
   window_size=200
+  export splitLines=10000000
   infileMax=''
-  while getopts i:m:c:d:w:p:m: opt
+  prog_compression=gzip
+  while getopts i:m:c:d:w:p:m:z: opt
   do
     case ${opt} in
     i) infile=${OPTARG};;
@@ -772,6 +847,7 @@ cmd_call ()
     c) chrom_sizes=${OPTARG};;
     w) window_size=${OPTARG};;
     p) parallel=${OPTARG};;
+    z) prog_compression=${OPTARG};;
     *) usage;;
     esac
   done
@@ -783,30 +859,40 @@ cmd_call ()
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
   window_half_size=$(( $window_size / 2 ))
   window_double_size=$(( $window_size * 2 ))
-  SORT_OPT_BED="--buffer-size=1G --parallel=${parallel} -k1,1 -k2,2n -k3,3n"
-  SORT_OPT_BED_NAME="--buffer-size=1G --parallel=${parallel} -k4,4d"
-  SORT_OPT_NAME="--buffer-size=1G --parallel=${parallel} -k1,1d"
+
+  SORT_OPT_BASE="--buffer-size=32G --batch-size=100"
+  export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
+  export SORT_OPT_BED_NAME="--buffer-size=32G --batch-size=100 -k4,4d"
+  export SORT_OPT_NAME="--buffer-size=32G --batch-size=100 -k1,1d"
+
+  export PROG_COMP="$prog_compression -c"
+  export PROG_DECOMP="$prog_compression -d"
+  if [ "${prog_compression}" = "zstd"  ]; then
+    PROG_COMP="$PROG_COMP -T${parallel} "
+  fi
 
 
-
-  ### prepare target positions
+  printf "### prepare target positions\n" >&2 
   prep_input $infile $window_double_size
 
-  ### comput neighbouring signals
+  printf "### compute neighbouring signals\n" >&2
   accumulate_neiboring_signals \
-    ${tmpdir}/potential_center.bg \
+    ${tmpdir}/potential_center.bg.COMP \
     ${tmpdir}/infile.fwd.bw \
     ${tmpdir}/infile.rev.bw \
     $window_size \
-  > ${tmpdir}/potential_center.txt
+  | $PROG_COMP \
+  > ${tmpdir}/potential_center.txt.COMP
 
-  ### select bidirectional regions
-  cat ${tmpdir}/potential_center.txt \
+
+  printf "### select bidirectional regions\n" >&2
+  cat ${tmpdir}/potential_center.txt.COMP \
+  | $PROG_DECOMP \
   | classify_convergent_divergent \
       ${tmpdir}/potential_center_conv.bed \
       ${tmpdir}/potential_center_divergent.bed
 
-  ### find cores with left/right boundaries
+  printf "### find cores with left/right boundaries\n"  >&2
   find_max_scores \
     ${tmpdir}/potential_center_divergent.bed \
     ${tmpdir}/infile.density.fwd.bg \
@@ -814,12 +900,14 @@ cmd_call ()
     $window_size \
   > ${tmpdir}/potential_center_divergent_with_core.bed
 
+  printf "### tighten\n"  >&2
   tighten_unidirectional ${tmpdir}/potential_center_divergent_with_core.bed \
   > ${tmpdir}/potential_center_divergent_with_core_tight.bed
 
+  printf "### counts_fr\n"  >&2
   counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax}
 
-  #mv ${tmpdir} ./
+  mv ${tmpdir} ./
 }
 
 
@@ -924,8 +1012,9 @@ cmd_run ()
   min_counts_in_both_strand=1
   min_counts_in_both_strand_max=0
   parallel=20
+  prog_compression=gzip
 
-  while getopts i:c:o:w:d:t:b:x:y:p: opt
+  while getopts i:c:o:w:d:t:b:x:y:p:z: opt
   do
     case ${opt} in
     i) infilesList=${OPTARG};;
@@ -938,6 +1027,7 @@ cmd_run ()
     x) min_counts_in_max=${OPTARG};;
     y) min_counts_in_both_strand_max=${OPTARG};;
     p) parallel=${OPTARG};;
+    z) prog_compression=${OPTARG};;
     *) usage;;
    esac
   done
@@ -959,6 +1049,7 @@ cmd_run ()
     -w ${window_size} \
     -m ${out_prefix}_max.ctss.bed.gz \
     -p ${parallel} \
+    -z ${prog_compression} \
   | gzip -c > ${out_prefix}_region.bed.gz
 
   gunzip -c ${out_prefix}_region.bed.gz \
