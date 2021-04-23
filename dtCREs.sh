@@ -257,8 +257,7 @@ prep_input ()
   bedGraphToBigWig ${tmpdir}/infile.density.fwd.bg $chrom_sizes ${tmpdir}/infile.density.fwd.bw
   bedGraphToBigWig ${tmpdir}/infile.density.rev.bg $chrom_sizes ${tmpdir}/infile.density.rev.bw
 
-  cat ${tmpdir}/infile.fwd.bg ${tmpdir}/infile.rev.bg \
-  | sort $SORT_OPT_BED \
+  sort $SORT_OPT_BED ${tmpdir}/infile.fwd.bg ${tmpdir}/infile.rev.bg \
   | mergeBed  -i stdin -d $window_double_size \
   | awk 'BEGIN{OFS="\t"}{ for (i=$2;i<$3;i++){print $1,i,i+1,$4} }' \
   | $PROG_COMP \
@@ -349,7 +348,9 @@ accumulate_neiboring_signals ()
 
       cat ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.*.OUT \
       | cut -f 1,4 \
-      | sort $SORT_OPT_NAME \
+      > ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.OUT.CONCAT
+
+      sort $SORT_OPT_NAME ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.OUT.CONCAT \
       | $PROG_COMP \
       > ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.COMP
 
@@ -764,10 +765,10 @@ cmd_total ()
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
   mkdir -p ${tmpdir}/each
   mkdir -p ${tmpdir}/merge
-  SORT_OPT_BASE="--buffer-size=32G --batch-size=100"
+  SORT_OPT_BASE="--batch-size=100"
   export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
-  export SORT_OPT_BED_NAME="--buffer-size=32G --batch-size=100 -k4,4d"
-  export SORT_OPT_NAME="--buffer-size=32G --batch-size=100 -k1,1d"
+  export SORT_OPT_BED_NAME="${SORT_OPT_BASE} -k4,4d"
+  export SORT_OPT_NAME="${SORT_OPT_BASE} -k1,1d"
 
   export -f ctssbed_to_bg
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
@@ -907,7 +908,7 @@ cmd_call ()
   printf "### counts_fr\n"  >&2
   counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax}
 
-  mv ${tmpdir} ./
+  #mv ${tmpdir} ./
 }
 
 
