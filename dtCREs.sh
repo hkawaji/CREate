@@ -3,8 +3,8 @@
 set -ue
 
 ### important for making 'sort' and 'join' to be compatible
-myLoc=en_US.UTF-8
-#myLoc=C
+#myLoc=en_US.UTF-8
+myLoc=C
 LANG=$myLoc
 LOCALE=$myLoc
 LC_ALL=$myLoc
@@ -179,7 +179,7 @@ ctssbed_to_bg ()
 
 bg_to_bed4 ()
 {
-  awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1","$2","$3}'
+  awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1"|"$2"|"$3}'
 }
 
 
@@ -201,7 +201,7 @@ ctss_density ()
 
   cat ${infile_bed4}.tmp.non_boundary.split.*.OUT \
   | cut -f 1,5 \
-  | sed -e 's/,/\t/g' \
+  | sed -e 's/|/\t/g' \
   | sort $SORT_OPT_BED \
   | $PROG_COMP \
   > ${infile_bed4}.tmp.non_boundary.splitMerged.COMP
@@ -272,7 +272,7 @@ acc_left ()
   local chrom_sizes=$2
   local window_size=$3
   local outfile=$4
-  awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+  awk 'BEGIN{OFS="\t"}{name=$1"|"$2"|"$3; print $1,$2,$3,name}' \
   | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
   | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
 }
@@ -285,7 +285,7 @@ acc_right ()
   local chrom_sizes=$2
   local window_size=$3
   local outfile=$4
-  awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+  awk 'BEGIN{OFS="\t"}{name=$1"|"$2"|"$3; print $1,$2,$3,name}' \
   | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
   | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
 }
@@ -301,11 +301,11 @@ acc_lr ()
   local outfile=$5
 
   if [ "${lr}" = "left" ]; then
-    awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+    awk 'BEGIN{OFS="\t"}{name=$1"|"$2"|"$3; print $1,$2,$3,name}' \
     | slopBed -i - -g $chrom_sizes -l $window_size -r 0 \
     | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
   elif [ "${lr}" = "right" ]; then
-    awk 'BEGIN{OFS="\t"}{name=$1","$2","$3; print $1,$2,$3,name}' \
+    awk 'BEGIN{OFS="\t"}{name=$1"|"$2"|"$3; print $1,$2,$3,name}' \
     | slopBed -i - -g $chrom_sizes -l 0 -r $window_size \
     | bigWigAverageOverBed $infile_bw /dev/stdin $outfile
   else
@@ -392,12 +392,12 @@ classify_convergent_divergent ()
   }'
 
   cat ${outfile_convergent}".txt" \
-  | sed -e 's/,/\t/g' | cut -f 1-3 | sort $SORT_OPT_BED \
+  | sed -e 's/|/\t/g' | cut -f 1-3 | sort $SORT_OPT_BED \
   | mergeBed -i stdin \
   > ${outfile_convergent}
 
   cat ${outfile_divergent}".txt" \
-  | sed -e 's/,/\t/g' | cut -f 1-3 | sort $SORT_OPT_BED \
+  | sed -e 's/|/\t/g' | cut -f 1-3 | sort $SORT_OPT_BED \
   | mergeBed -i stdin \
   > ${outfile_divergent}
 }
@@ -409,7 +409,7 @@ find_max_score_in_left () {
   local extend_size=$2
 
   awk --assign extend_size=$extend_size 'BEGIN{OFS="\t"}{
-    name=$1","$2","$3;
+    name=$1"|"$2"|"$3;
     start = $2 - extend_size;
     if (start < 0) {start = 0}
     print $1, start, $3, name
@@ -418,7 +418,7 @@ find_max_score_in_left () {
   | intersectBed -sorted -wa -wb -a stdin -b ${infile_bg} \
   | groupBy -grp 4 -opCols 5,6,7,8 -ops collapse \
   | awk 'BEGIN{OFS="\t"}{
-      orig_n = split($1, orig_a, ",")
+      orig_n = split($1, orig_a, "|")
       chr_n = split($2, chr_a, ",")
       start_g = split($3, start_a, ",")
       stop_n = split($4, stop_a, ",")
@@ -444,7 +444,7 @@ find_max_score_in_left () {
           leftmost_start = start_a[i]
         }
       }
-      print $1, chr","start","stop","score",leftmost_start,"leftmost_start
+      print $1, chr"|"start"|"stop"|"score"|leftmost_start|"leftmost_start
     }'
 }
 
@@ -455,14 +455,14 @@ find_max_score_in_right () {
   local extend_size=$2
 
   awk --assign extend_size=$extend_size 'BEGIN{OFS="\t"}{
-    name=$1","$2","$3;
+    name=$1"|"$2"|"$3;
     print $1,$2,$3 + extend_size,name
   }' \
   | sort $SORT_OPT_BED \
   | intersectBed -sorted -wa -wb -a stdin -b ${infile_bg} \
   | groupBy -grp 4 -opCols 5,6,7,8 -ops collapse \
   | awk 'BEGIN{OFS="\t"}{
-      orig_n = split($1, orig_a, ",")
+      orig_n = split($1, orig_a, "|")
       chr_n = split($2, chr_a, ",")
       start_n = split($3, start_a, ",")
       stop_n = split($4, stop_a, ",")
@@ -488,7 +488,7 @@ find_max_score_in_right () {
           rightmost_stop = stop_a[i]
         }
       }
-      print $1, chr","start","stop","score",rightmost_stop,"rightmost_stop
+      print $1, chr"|"start"|"stop"|"score"|rightmost_stop|"rightmost_stop
   }'
 }
 
@@ -512,19 +512,20 @@ find_max_scores () {
 
   wait
 
+
   cat ${tmpdir}/find_max_scores_left.txt ${tmpdir}/find_max_scores_right.txt \
   | cut -f 1 \
   | sort $SORT_OPT_NAME \
   | uniq \
-  | join -j 1 -t "	" -a 1 -o 1.1,2.2 -e "NA,NA,NA,NA,NA,NA" - ${tmpdir}/find_max_scores_left.txt \
-  | join -j 1 -t "	" -a 1 -o 1.1,1.2,2.2 -e "NA,NA,NA,NA,NA,NA" - ${tmpdir}/find_max_scores_right.txt \
+  | join -j 1 -t "	" -a 1 -o 1.1,2.2 -e "NA|NA|NA|NA|NA|NA" - ${tmpdir}/find_max_scores_left.txt \
+  | join -j 1 -t "	" -a 1 -o 1.1,1.2,2.2 -e "NA|NA|NA|NA|NA|NA" - ${tmpdir}/find_max_scores_right.txt \
   > ${tmpdir}/find_max_scores.txt
 
   cat ${tmpdir}/find_max_scores.txt \
-  | sed -e 's/,/\t/g' \
+  | sed -e 's/|/\t/g' \
   | awk 'BEGIN{OFS="\t"}{
       chr = $1; start = $2; stop = $3;
-      name = chr","start","stop;
+      name = chr"|"start"|"stop;
 
       chrL = $4; startL = $5; stopL = $6;
       scoreL = $7; leftmost = $9;
@@ -567,7 +568,7 @@ find_max_scores () {
         if (start > pos_a[i] ) { start = pos_a[i] }
         if (stop < pos_a[i] ) { stop = pos_a[i] }
       }
-      name = chr","start","stop
+      name = chr"|"start"|"stop
         print chr, start, stop, name, 0, ".", $2, $3, "0,0,0"
     }'
 }
@@ -588,8 +589,8 @@ tighten_unidirectional ()
     ${tmpdir}/trim_unidirectional.outbound.bed \
     /dev/stdout \
   | awk '{if($4 == 0){print $1}}' \
-  | sed -e 's/,/\t/g' \
-  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1","$2","$3}' \
+  | sed -e 's/|/\t/g' \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1"|"$2"|"$3}' \
   | sort $SORT_OPT_BED \
   | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.rev.bg \
   | groupBy -g 1,2,3,4 -c 7 -o collapse \
@@ -610,8 +611,8 @@ tighten_unidirectional ()
     ${tmpdir}/trim_unidirectional.outbound.bed \
     /dev/stdout \
   | awk '{if($4 == 0){print $1}}' \
-  | sed -e 's/,/\t/g' \
-  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1","$2","$3}' \
+  | sed -e 's/|/\t/g' \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1"|"$2"|"$3}' \
   | sort $SORT_OPT_BED \
   | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.fwd.bg \
   | groupBy -g 1,2,3,4 -c 6 -o collapse \
@@ -640,7 +641,7 @@ tighten_unidirectional ()
       color = $9 ; flag = $10; pos = $11;
       if (flag == "leftmost") { start = pos; thickStart = pos}
       if (flag == "rightmost") { stop = pos; thickStop = pos}
-      name = chr","start","stop
+      name = chr"|"start"|"stop
       print chr, start, stop, name, score, strand, thickStart, thickStop, color
     }'
 }
@@ -655,8 +656,8 @@ counts_fr ()
   fi
 
   cat $infile \
-  | sed -e 's/\t/|/g' \
-  | awk -F "|" 'BEGIN{OFS="\t"}{
+  | sed -e 's/\t/;/g' \
+  | awk -F ";" 'BEGIN{OFS="\t"}{
       print $1, $7 ,$3, $0
   }' \
   | sort $SORT_OPT_BED \
@@ -664,8 +665,8 @@ counts_fr ()
 
 
   cat $infile \
-  | sed -e 's/\t/|/g' \
-  | awk -F "|" 'BEGIN{OFS="\t"}{
+  | sed -e 's/\t/;/g' \
+  | awk -F ";" 'BEGIN{OFS="\t"}{
       print $1, $2 ,$8, $0
   }' \
   | sort $SORT_OPT_BED \
@@ -717,7 +718,7 @@ counts_fr ()
 
 
   cat ${tmpdir}/counts_fr.joined.txt \
-  | sed -e 's/|/\t/g' \
+  | sed -e 's/;/\t/g' \
   | awk 'BEGIN{OFS="\t"}{
       chr = $1; start = $2; stop = $3; name = $4; score = $5; strand = $6;
       thickStart = $7; thickStop = $8; color = $9; counts_fwd = $10; counts_rev = $11; max_fwd = $12 ; max_rev = $13 ;
@@ -767,8 +768,8 @@ cmd_total ()
   mkdir -p ${tmpdir}/merge
   SORT_OPT_BASE="--batch-size=100"
   export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
-  export SORT_OPT_BED_NAME="${SORT_OPT_BASE} -k4,4d"
-  export SORT_OPT_NAME="${SORT_OPT_BASE} -k1,1d"
+  export SORT_OPT_BED_NAME="${SORT_OPT_BASE} -k4,4"
+  export SORT_OPT_NAME="${SORT_OPT_BASE} -k1,1"
 
   export -f ctssbed_to_bg
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
@@ -833,7 +834,6 @@ cmd_total ()
 
 cmd_call ()
 {
-
   ### handle options
   parallel=20
   window_size=200
@@ -861,13 +861,13 @@ cmd_call ()
   window_half_size=$(( $window_size / 2 ))
   window_double_size=$(( $window_size * 2 ))
 
-  SORT_OPT_BASE="--buffer-size=32G --batch-size=100"
-  export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
-  export SORT_OPT_BED_NAME="--buffer-size=32G --batch-size=100 -k4,4d"
-  export SORT_OPT_NAME="--buffer-size=32G --batch-size=100 -k1,1d"
+  SORT_OPT_BASE="--batch-size=100"
+  SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
+  SORT_OPT_BED_NAME="${SORT_OPT_BASE} -k4,4"
+  SORT_OPT_NAME="${SORT_OPT_BASE} -k1,1"
 
-  export PROG_COMP="$prog_compression -c"
-  export PROG_DECOMP="$prog_compression -d"
+  PROG_COMP="$prog_compression -c"
+  PROG_DECOMP="$prog_compression -d"
   if [ "${prog_compression}" = "zstd"  ]; then
     PROG_COMP="$PROG_COMP -T${parallel} "
   fi
@@ -908,7 +908,6 @@ cmd_call ()
   printf "### counts_fr\n"  >&2
   counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax}
 
-  #mv ${tmpdir} ./
 }
 
 
