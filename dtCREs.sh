@@ -727,12 +727,11 @@ counts_fr ()
       directionality = (counts_fwd - counts_rev) / counts
       directionality_abs = directionality
       if (directionality_abs < 0) { directionality_abs = -1 * directionality_abs}
-      #name = name",coreStart:"thickStart",coreStop:"thickStop",counts:"counts",countsFwd:"counts_fwd",countsRev:"counts_rev",directionality:"directionality
-      name = name",counts:"counts",countsFwd:"counts_fwd",countsRev:"counts_rev",directionality:"directionality
+      name = name"|counts:"counts"|countsFwd:"counts_fwd"|countsRev:"counts_rev"|directionality:"directionality
       if ( max_fwd != "" ) {
         max_ctss = max_fwd;
         if ( max_ctss < max_rev ){max_ctss = max_rev}
-        name = name",ctssMax:"max_ctss",ctssMaxFwd:"max_fwd",ctssMaxRev:"max_rev
+        name = name"|ctssMax:"max_ctss"|ctssMaxFwd:"max_fwd"|ctssMaxRev:"max_rev
       }
       print chr, start, stop, name, directionality_abs, strand, thickStart, thickStop, color
     }'
@@ -914,7 +913,8 @@ cmd_call ()
 cmd_filter ()
 {
   ### handle options
-  max_directionality=0.95
+  #max_directionality=0.95
+  max_directionality=0.8
   min_counts_in_total=0
   min_counts_in_max=0
   min_counts_in_both_strand=1
