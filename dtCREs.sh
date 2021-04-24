@@ -3,16 +3,7 @@
 set -ue
 
 ### important for making 'sort' and 'join' to be compatible
-#myLoc=en_US.UTF-8
-myLoc=C
-LANG=$myLoc
-LOCALE=$myLoc
-LC_ALL=$myLoc
-LC_COLLATE=$myLoc
-LC_CTYPE=$myLoc
-LC_NUMERIC=$myLoc
-
-
+export LC_ALL=C
 
 
 ### define error message
