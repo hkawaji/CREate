@@ -188,6 +188,7 @@ ctss_density ()
   local infile_bed4=$1
   local infile_bw=$2
   local density_width=$3
+  local outfile_bg=$4
 
   cat ${chrom_sizes} \
   | awk --assign density_width=$density_width 'BEGIN{OFS="\t"}{print $1, density_width, $2 - density_width}' \
@@ -203,24 +204,9 @@ ctss_density ()
   | cut -f 1,5 \
   | sed -e 's/|/\t/g' \
   | sort $SORT_OPT_BED \
-  | $PROG_COMP \
-  > ${infile_bed4}.tmp.non_boundary.splitMerged.COMP
+  > ${outfile_bg}
 
   rm -f ${infile_bed4}.tmp.non_boundary.split.*
-  cat ${infile_bed4}.tmp.non_boundary.splitMerged.COMP \
-  | $PROG_DECOMP
-
-
-  #intersectBed -u -wa -a ${infile_bed4} -b ${infile_bed4}.tmp.scope \
-  #> ${infile_bed4}.tmp.non_boundary
-
-  #bigWigAverageOverBed -sampleAroundCenter=$density_width \
-  #  $infile_bw \
-  #  ${infile_bed4}.tmp.non_boundary \
-  #  /dev/stdout \
-  #| cut -f 1,5 \
-  #| sed -e 's/,/\t/g' \
-  #| sort $SORT_OPT_BED
 }
 
 
@@ -249,10 +235,17 @@ prep_input ()
   cat ${tmpdir}/infile.fwd.bg | bg_to_bed4 > ${tmpdir}/infile.fwd.bed4
   cat ${tmpdir}/infile.rev.bg | bg_to_bed4 > ${tmpdir}/infile.rev.bed4
 
-  ctss_density ${tmpdir}/infile.fwd.bed4 ${tmpdir}/infile.fwd.bw $density_width \
-  > ${tmpdir}/infile.density.fwd.bg
-  ctss_density ${tmpdir}/infile.rev.bed4 ${tmpdir}/infile.rev.bw $density_width \
-  > ${tmpdir}/infile.density.rev.bg
+  ctss_density \
+    ${tmpdir}/infile.fwd.bed4 \
+    ${tmpdir}/infile.fwd.bw \
+    ${density_width} \
+    ${tmpdir}/infile.density.fwd.bg
+
+  ctss_density \
+    ${tmpdir}/infile.rev.bed4 \
+    ${tmpdir}/infile.rev.bw \
+    ${density_width} \
+    ${tmpdir}/infile.density.rev.bg
 
   bedGraphToBigWig ${tmpdir}/infile.density.fwd.bg $chrom_sizes ${tmpdir}/infile.density.fwd.bw
   bedGraphToBigWig ${tmpdir}/infile.density.rev.bg $chrom_sizes ${tmpdir}/infile.density.rev.bw
