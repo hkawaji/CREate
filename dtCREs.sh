@@ -22,7 +22,9 @@ usage: $0 <command> <args>
     -o out_prefix
     [-w window_size(default:200)]
     [-d max_directionality(default:0.95)]
-    [-t min_counts_in_total(default:0)]
+    [-D min_directionality(default:0)]
+    [-t max_counts_in_total(default:-1(Inf))]
+    [-T min_counts_in_total(default:0)]
     [-b min_counts_in_both_strand(default:1)]
     [-x min_counts_in_max(default:0)]
     [-y min_counts_in_both_strand_max(default:0)]
@@ -62,13 +64,15 @@ usage: $0 <command> <args>
   gunzip -c output.bed.gz
   | $0 filter
           [-d max_directionality(default:0.95)]
-          [-t min_counts_in_total(default:0)]
+          [-D min_directionality(default:0)]
+          [-t max_counts_in_total(default:-1(Inf))]
+          [-T min_counts_in_total(default:0)]
           [-b min_counts_in_both_strand(default:1)]
           [-x min_counts_in_max(default:0)]
           [-y min_counts_in_both_strand_max(default:0)]
 
 
-(version. 2021.4.6)
+(version. 2021.5.10)
 
 
 Overview
@@ -674,7 +678,10 @@ counts_fr ()
 
     if [ -n "${infileMax}" ]; then
       gunzip -c ${infileMax} \
-      | awk '{if($6 == "+"){print}}' \
+      | awk --assign strand=$strand '{ 
+          if((strand =="fwd")&&($6 == "+")){print};
+          if((strand =="rev")&&($6 == "-")){print}; 
+        }' \
       | sort $SORT_OPT_BED \
       | intersectBed -sorted -wa -wb -a ${tmpdir}/counts_fr.region_for_${strand}.bed -b stdin \
       | sort $SORT_OPT_NAME \
@@ -899,16 +906,20 @@ cmd_filter ()
   ### handle options
   #max_directionality=0.95
   max_directionality=0.8
+  min_directionality=0
+  max_counts_in_total=-1
   min_counts_in_total=0
   min_counts_in_max=0
   min_counts_in_both_strand=1
   min_counts_in_both_strand_max=0
 
-  while getopts d:t:b:x:y: opt
+  while getopts d:D:t:T:b:x:y: opt
   do
     case ${opt} in
     d) max_directionality=${OPTARG};;
-    t) min_counts_in_total=${OPTARG};;
+    D) min_directionality=${OPTARG};;
+    t) max_counts_in_total=${OPTARG};;
+    T) min_counts_in_total=${OPTARG};;
     b) min_counts_in_both_strand=${OPTARG};;
     x) min_counts_in_max=${OPTARG};;
     y) min_counts_in_both_strand_max=${OPTARG};;
@@ -916,8 +927,14 @@ cmd_filter ()
     esac
   done
 
+  if [ "${min_directionality}" != "0" ]; then
+    max_directionality=1
+  fi
+
   awk \
     --assign max_directionality=$max_directionality \
+    --assign min_directionality=$min_directionality \
+    --assign max_counts_in_total=$max_counts_in_total \
     --assign min_counts_in_total=$min_counts_in_total \
     --assign min_counts_in_max=$min_counts_in_max \
     --assign min_counts_in_both_strand=$min_counts_in_both_strand \
@@ -927,35 +944,41 @@ cmd_filter ()
     if (match( $0, /directionality:[-.0-9]+/)) {
       s = substr($0, RSTART, RLENGTH)
       sub("directionality:", "", s)
-      d = s
+      d = s + 0;
       if (d < 0) { d = d * -1}
     }
 
     if (match( $0, /counts:[-.0-9]+/)) {
       c = substr($0, RSTART, RLENGTH)
       sub("counts:", "", c)
+      c += 0;
     }
     if (match( $0, /countsFwd:[-.0-9]+/)) {
       f = substr($0, RSTART, RLENGTH)
       sub("countsFwd:", "", f)
+      f += 0;
     }
     if (match( $0, /countsRev:[-.0-9]+/)) {
       r = substr($0, RSTART, RLENGTH)
       sub("countsRev:", "", r)
+      r += 0;
     }
 
     cm = 0
     if (match( $0, /ctssMax:[-.0-9]+/)) {
       cm = substr($0, RSTART, RLENGTH)
       sub("ctssMax:", "", cm)
+      cm += 0;
     }
     if (match( $0, /ctssMaxFwd:[-.0-9]+/)) {
       cmf = substr($0, RSTART, RLENGTH)
       sub("ctssMaxFwd:", "", cmf)
+      cmf += 0;
     }
     if (match( $0, /ctssMaxRev:[-.0-9]+/)) {
       cmr = substr($0, RSTART, RLENGTH)
       sub("ctssMaxRev:", "", cmr)
+      cmr += 0;
     }
 
 
@@ -969,13 +992,14 @@ cmd_filter ()
     }
 
     if ( d > max_directionality ) {next}
+    if ( d < min_directionality ) {next}
+    if (( max_counts_in_total > 0) && ( c > max_counts_in_total )) {next}
     if ( c < min_counts_in_total ) {next}
     if ( f < min_counts_in_both_strand ) {next}
     if ( r < min_counts_in_both_strand ) {next}
     if ( (cm > 0) && (cm < min_counts_in_max) ) {next}
     if ( (cm > 0) && (cmf < min_counts_in_both_strand_max) ) {next}
     if ( (cm > 0) && (cmr < min_counts_in_both_strand_max) ) {next}
-
 
     color = sprintf( "%d,0,%d", 127 + 127 * s , 127 - 127 * s )
     $9 = color
@@ -1039,7 +1063,7 @@ cmd_run ()
   gunzip -c ${out_prefix}_region.bed.gz \
   | $0 filter \
     -d $max_directionality \
-    -t $min_counts_in_total \
+    -T $min_counts_in_total \
     -b $min_counts_in_both_strand \
     -x $min_counts_in_max \
     -y $min_counts_in_both_strand_max \
