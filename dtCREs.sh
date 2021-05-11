@@ -21,16 +21,8 @@ usage: $0 <command> <args>
     -c chrom_sizes
     -o out_prefix
     [-w window_size(default:200)]
-    [-d max_directionality(default:0.95)]
-    [-D min_directionality(default:0)]
-    [-t max_counts_in_total(default:-1(Inf))]
-    [-T min_counts_in_total(default:0)]
-    [-b min_counts_in_both_strand(default:1)]
-    [-x min_counts_in_max(default:0)]
-    [-y min_counts_in_both_strand_max(default:0)]
     [-p parallel(default:20)]
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
-
 
   Note that each of the inputt files should be
   BED-formatted CTSS profiles with gzip (*.ctss.bed.gz)
@@ -63,16 +55,17 @@ usage: $0 <command> <args>
   # filter the divergent regions
   gunzip -c output.bed.gz
   | $0 filter
-          [-d max_directionality(default:0.95)]
-          [-D min_directionality(default:0)]
-          [-t max_counts_in_total(default:-1(Inf))]
-          [-T min_counts_in_total(default:0)]
-          [-b min_counts_in_both_strand(default:1)]
-          [-x min_counts_in_max(default:0)]
-          [-y min_counts_in_both_strand_max(default:0)]
+          [-D max_directionality(default:1)]
+          [-d min_directionality(default:0)]
+          [-T max_counts(default:-1)]
+          [-t min_counts(default:0)]
+          [-e min_counts_in_each_strand(default:0)]
+          [-x min_ctssMax(default:0)]
+          [-y min_ctssMax_in_each_strand(default:0)]
+          [-v] (for invert match, such as "grep -v")
 
 
-(version. 2021.5.10)
+(version. 2021.5.11)
 
 
 Overview
@@ -904,41 +897,40 @@ cmd_call ()
 cmd_filter ()
 {
   ### handle options
-  #max_directionality=0.95
-  max_directionality=0.8
+  max_directionality=1
   min_directionality=0
-  max_counts_in_total=-1
-  min_counts_in_total=0
-  min_counts_in_max=0
-  min_counts_in_both_strand=1
-  min_counts_in_both_strand_max=0
+  max_counts=-1
+  min_counts=0
+  min_counts_in_each_strand=0
+  min_ctssMax=0
+  min_ctssMax_in_each_strand=0
+  invert_match="false"
 
-  while getopts d:D:t:T:b:x:y: opt
+  while getopts D:d:T:t:E:e:x:y:v opt
   do
     case ${opt} in
-    d) max_directionality=${OPTARG};;
-    D) min_directionality=${OPTARG};;
-    t) max_counts_in_total=${OPTARG};;
-    T) min_counts_in_total=${OPTARG};;
-    b) min_counts_in_both_strand=${OPTARG};;
-    x) min_counts_in_max=${OPTARG};;
-    y) min_counts_in_both_strand_max=${OPTARG};;
+    D) max_directionality=${OPTARG};;
+    d) min_directionality=${OPTARG};;
+    T) max_counts=${OPTARG};;
+    t) min_counts=${OPTARG};;
+    e) min_counts_in_each_strand=${OPTARG};;
+    x) min_ctssMax=${OPTARG};;
+    y) min_ctssMax_in_each_strand=${OPTARG};;
+    v) invert_match="true";;
     *) usage;;
     esac
   done
 
-  if [ "${min_directionality}" != "0" ]; then
-    max_directionality=1
-  fi
 
   awk \
     --assign max_directionality=$max_directionality \
     --assign min_directionality=$min_directionality \
-    --assign max_counts_in_total=$max_counts_in_total \
-    --assign min_counts_in_total=$min_counts_in_total \
-    --assign min_counts_in_max=$min_counts_in_max \
-    --assign min_counts_in_both_strand=$min_counts_in_both_strand \
-    --assign min_counts_in_both_strand_max=$min_counts_in_both_strand_max \
+    --assign max_counts=$max_counts \
+    --assign min_counts=$min_counts \
+    --assign min_counts_in_each_strand=$min_counts_in_each_strand \
+    --assign min_ctssMax=$min_ctssMax \
+    --assign min_ctssMax_in_each_strand=$min_ctssMax_in_each_strand \
+    --assign invert_match=$invert_match \
   'BEGIN{OFS="\t"}{
 
     if (match( $0, /directionality:[-.0-9]+/)) {
@@ -964,7 +956,7 @@ cmd_filter ()
       r += 0;
     }
 
-    cm = 0
+    cm = 0; cmf = 0 ; cmr = 0;
     if (match( $0, /ctssMax:[-.0-9]+/)) {
       cm = substr($0, RSTART, RLENGTH)
       sub("ctssMax:", "", cm)
@@ -981,29 +973,39 @@ cmd_filter ()
       cmr += 0;
     }
 
-
-    if ( ( cm == 0 ) && ( min_counts_in_max > 0) ) {
+    if ( ( cm == 0 ) && ( min_ctssMax > 0) ) {
       print "Error: No ctssMax found. Related filters cannot be used.\n" > "/dev/stderr"
       exit 1
     }
-    if ( ( cm == 0 ) && ( min_counts_in_both_strand_max > 0) ) {
+    if ( ( cm == 0 ) && ( min_ctssMax_in_each_strand > 0) ) {
       print "Error: No ctssMax found. Related filters cannot be used.\n" > "/dev/stderr"
       exit 1
     }
 
-    if ( d > max_directionality ) {next}
-    if ( d < min_directionality ) {next}
-    if (( max_counts_in_total > 0) && ( c > max_counts_in_total )) {next}
-    if ( c < min_counts_in_total ) {next}
-    if ( f < min_counts_in_both_strand ) {next}
-    if ( r < min_counts_in_both_strand ) {next}
-    if ( (cm > 0) && (cm < min_counts_in_max) ) {next}
-    if ( (cm > 0) && (cmf < min_counts_in_both_strand_max) ) {next}
-    if ( (cm > 0) && (cmr < min_counts_in_both_strand_max) ) {next}
+    flagM = "true"
+    if      ( d > max_directionality )           { flagM = "false" }
+    else if ( d < min_directionality )           { flagM = "false" }
+
+    else if ( ( max_counts >= 0) &&
+              ( c > max_counts ) )               { flagM = "false" }
+    else if ( c < min_counts )                   { flagM = "false" }
+
+    else if ( f < min_counts_in_each_strand )    { flagM = "false" }
+    else if ( r < min_counts_in_each_strand )    { flagM = "false" }
+
+    else if ( cm < min_ctssMax )                 { flagM = "false" }
+    else if ( cmf < min_ctssMax_in_each_strand ) { flagM = "false" }
+    else if ( cmr < min_ctssMax_in_each_strand ) { flagM = "false" }
+
+
+    # invert
+    if ( invert_match == "true" ) {
+      if ( flagM == "true" ) { flagM = "false" } else { flagM = "true" }
+    }
 
     color = sprintf( "%d,0,%d", 127 + 127 * s , 127 - 127 * s )
     $9 = color
-    print 
+    if ( flagM == "true" ) { print }
   }'
 }
 
@@ -1014,26 +1016,16 @@ cmd_run ()
 
   ### handle options
   window_size=200
-  max_directionality=0.95
-  min_counts_in_total=0
-  min_counts_in_max=0
-  min_counts_in_both_strand=1
-  min_counts_in_both_strand_max=0
   parallel=20
   prog_compression=gzip
 
-  while getopts i:c:o:w:d:t:b:x:y:p:z: opt
+  while getopts i:c:o:w:p:z: opt
   do
     case ${opt} in
     i) infilesList=${OPTARG};;
     c) chrom_sizes=${OPTARG};;
     o) out_prefix=${OPTARG};;
     w) window_size=${OPTARG};;
-    d) max_directionality=${OPTARG};;
-    t) min_counts_in_total=${OPTARG};;
-    b) min_counts_in_both_strand=${OPTARG};;
-    x) min_counts_in_max=${OPTARG};;
-    y) min_counts_in_both_strand_max=${OPTARG};;
     p) parallel=${OPTARG};;
     z) prog_compression=${OPTARG};;
     *) usage;;
@@ -1062,11 +1054,6 @@ cmd_run ()
 
   gunzip -c ${out_prefix}_region.bed.gz \
   | $0 filter \
-    -d $max_directionality \
-    -T $min_counts_in_total \
-    -b $min_counts_in_both_strand \
-    -x $min_counts_in_max \
-    -y $min_counts_in_both_strand_max \
   | gzip -c > ${out_prefix}_region_filtered.bed.gz
 }
 
