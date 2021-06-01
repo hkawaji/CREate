@@ -36,12 +36,16 @@ usage: $0 <command> <args>
   $0 total
           -i infileList
           -c chrom_sizes
-          [-m outfileMax.ctss.bed.gz]
+          -o out_prefix
           [-p parallel(default:20)]
-  | gzip -c > ctssTotal.bed.gz
+
+    which produces the following files:
+      * PREFIX_total.ctss.bed.gz
+      * PREFIX_max.ctss.bed.gz
+      * PREFIX_each.ctss.bw.tar 
 
 
-  # identify divergent regions:
+  # call (identify) divergent regions
   $0 call
           -i infile.ctss.bed.gz
           -c chrom_sizes
@@ -52,7 +56,15 @@ usage: $0 <command> <args>
   | gzip -c > output.bed.gz
 
 
-  # filter the divergent regions
+  # count reads per samples
+  $0 eachcount
+          -i divergently_transcribed_region.bed.gz  (BED9 format)
+          -e infile_each.ctss.bw.tar (archive of bigWig files for each strand)
+          -o out_prefix
+          [-p parallel(default:20)]
+
+
+  # filter the divergently transcribed regions
   gunzip -c output.bed.gz
   | $0 filter
           [-D max_directionality(default:1)]
@@ -722,6 +734,12 @@ counts_fr ()
 }
 
 
+counts_each ()
+{
+  local infileEach=$1
+}
+
+
 
 #--------------------------------------------------------
 # main
@@ -731,18 +749,19 @@ cmd_total ()
 {
   ### handle options
   parallel=20
-  while getopts i:c:p:m: opt
+  while getopts i:c:p:o: opt
   do
     case ${opt} in
     i) infilesList=${OPTARG};;
     c) chrom_sizes=${OPTARG};;
     p) parallel=${OPTARG};;
-    m) outfileMax=${OPTARG};;
+    o) out_prefix=${OPTARG};;
     *) usage;;
     esac
   done
   if [ ! -n "${infilesList-}" ]; then usage; fi
   if [ ! -n "${chrom_sizes-}" ]; then usage; fi
+  if [ ! -n "${out_prefix-}" ]; then usage; fi
 
   ### setup for later
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
@@ -775,24 +794,17 @@ cmd_total ()
   | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4,"-"}' \
   > ${tmpdir}/merge/totalR.bed &
 
-  if [ -n "${outfileMax-}" ]; then
-    bigWigMerge -max -inList ${tmpdir}/merge/infileF.list /dev/stdout \
-    | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4,"+"}' \
-    > ${tmpdir}/merge/maxF.bed &
+  bigWigMerge -max -inList ${tmpdir}/merge/infileF.list /dev/stdout \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4,"+"}' \
+  > ${tmpdir}/merge/maxF.bed &
 
-    bigWigMerge -max -inList ${tmpdir}/merge/infileR.list /dev/stdout \
-    | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4,"-"}' \
-    > ${tmpdir}/merge/maxR.bed &
-  fi
+  bigWigMerge -max -inList ${tmpdir}/merge/infileR.list /dev/stdout \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,".",$4,"-"}' \
+  > ${tmpdir}/merge/maxR.bed &
 
   wait
 
-  operations="total"
-  if [ -n "${outfileMax-}" ]; then
-    operations="total max"
-  fi
-
-  for operation in ${operations}
+  for operation in total max
   do
     cat ${tmpdir}/merge/${operation}F.bed ${tmpdir}/merge/${operation}R.bed \
     | sort $SORT_OPT_BED \
@@ -806,12 +818,9 @@ cmd_total ()
     | gzip -c > ${tmpdir}/merge/${operation}.ctss.bed.gz
   done
 
-  gunzip -c ${tmpdir}/merge/total.ctss.bed.gz
-  if [ -n "${outfileMax-}" ]; then
-    mv -f ${tmpdir}/merge/max.ctss.bed.gz ${outfileMax}
-  fi
-
-  #mv ${tmpdir} .
+  mv ${tmpdir}/merge/total.ctss.bed.gz ${out_prefix}_total.ctss.bed.gz
+  mv ${tmpdir}/merge/max.ctss.bed.gz ${out_prefix}_max.ctss.bed.gz
+  (cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
 }
 
 
@@ -822,6 +831,7 @@ cmd_call ()
   window_size=200
   export splitLines=10000000
   infileMax=''
+  infileEach=''
   prog_compression=gzip
   while getopts i:m:c:d:w:p:m:z: opt
   do
@@ -859,6 +869,7 @@ cmd_call ()
   printf "### prepare target positions\n" >&2 
   prep_input $infile $window_double_size
 
+
   printf "### compute neighbouring signals\n" >&2
   accumulate_neiboring_signals \
     ${tmpdir}/potential_center.bg.COMP \
@@ -889,9 +900,196 @@ cmd_call ()
   > ${tmpdir}/potential_center_divergent_with_core_tight.bed
 
   printf "### counts_fr\n"  >&2
-  counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax}
-
+  total=$( gunzip -c ${infile} | awk '{sum += $5 * ($3-$2)}END{print sum}' )
+  counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax} \
+  | awk --assign total=$total 'BEGIN{OFS="\t"}{
+      if (match( $4, /counts:[-.0-9,]+/)) {
+        c = substr($4, RSTART, RLENGTH)
+        sub("counts:", "", c)
+        c += 0
+      }
+      tpm = 1e6 * c / total
+      $4 = $4"|total:"total"|tpm:"tpm
+      print
+    }'
 }
+
+
+
+cmd_eachcount ()
+{
+  ### handle options
+  parallel=20
+  infile=
+  infileEach=
+  while getopts i:e:p:o: opt
+  do
+    case ${opt} in
+    i) infile=${OPTARG};;
+    e) infileEach=${OPTARG};;
+    p) parallel=${OPTARG};;
+    o) out_prefix=${OPTARG};;
+    *) usage;;
+    esac
+  done
+  if [ ! -n "${infile-}" ]; then usage; fi
+  if [ ! -n "${infileEach-}" ]; then usage; fi
+  if [ ! -n "${out_prefix-}" ]; then usage; fi
+
+  ### setup for later
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+
+  mkdir -p ${tmpdir}/each
+  tar xvf ${infileEach} -C ${tmpdir}/each/
+
+
+  ###
+  ### prep regions (core + extended for forward or reverse)
+  ###
+  gunzip -c ${infile} \
+  | sed -e 's/\t/#/g' \
+  | awk 'BEGIN{OFS="\t";FS="#"}{
+    chr=$1;start=$2;stop=$3;core_start=$7;core_stop=$8;name=$4
+    print chr, core_start, stop, $_
+  }' > ${tmpdir}/fwd.bed
+
+  gunzip -c ${infile} \
+  | sed -e 's/\t/#/g' \
+  | awk 'BEGIN{OFS="\t";FS="#"}{
+    chr=$1;start=$2;stop=$3;core_start=$7;core_stop=$8;name=$4
+    print chr, start, core_stop, $_
+  }' > ${tmpdir}/rev.bed
+
+
+  ###
+  ### prep totals
+  ###
+  find ${tmpdir}/each/ -name '*.fwd.bw' \
+  | xargs -L 1 -I % bash -c \
+     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}'" \
+  | sed 's/.fwd.bw,/\t/'  \
+  | sed 's/^.*\///'  \
+  | sort -k1,1 \
+  > ${tmpdir}/totalsFwd.txt
+
+  find ${tmpdir}/each/ -name '*.rev.bw' \
+  | xargs -L 1 -I % bash -c \
+     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}'" \
+  | sed 's/.rev.bw,/\t/'  \
+  | sed 's/^.*\///'  \
+  | sort -k1,1 \
+  > ${tmpdir}/totalsRev.txt
+
+  join -t "	" ${tmpdir}/totalsFwd.txt ${tmpdir}/totalsRev.txt \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2+$3}' \
+  > ${tmpdir}/totals.txt
+
+
+  ###
+  ### counts in parallel
+  ###
+  cut -f 1 ${tmpdir}/totals.txt \
+  | xargs -L 1 -P ${parallel} -I % bigWigAverageOverBed ${tmpdir}/each/%.fwd.bw ${tmpdir}/fwd.bed ${tmpdir}/each/%.fwd.bw.txt
+
+  cut -f 1 ${tmpdir}/totals.txt \
+  | xargs -L 1 -P ${parallel} -I % bigWigAverageOverBed ${tmpdir}/each/%.rev.bw ${tmpdir}/rev.bed ${tmpdir}/each/%.rev.bw.txt
+
+
+  ###
+  ### merge each counts 
+  ###
+  cut -f 1 ${tmpdir}/each/$( head -1 ${tmpdir}/totals.txt | cut -f 1 ).fwd.bw.txt \
+  | tee ${tmpdir}/count.fwd.txt \
+  > ${tmpdir}/count.rev.txt 
+
+  for X in $( cat ${tmpdir}/totals.txt | cut -f 1  )
+  do
+    X=${tmpdir}/each/${X}.fwd.bw.txt
+    join -t "	" ${tmpdir}/count.fwd.txt <(cut -f 1,4 $X) > ${tmpdir}/count.fwd.txt.tmp
+    mv -f ${tmpdir}/count.fwd.txt.tmp ${tmpdir}/count.fwd.txt
+  done
+
+  for X in $( cat ${tmpdir}/totals.txt | cut -f 1  )
+  do
+    X=${tmpdir}/each/${X}.rev.bw.txt
+    join -t "	" ${tmpdir}/count.rev.txt <(cut -f 1,4 $X) > ${tmpdir}/count.rev.txt.tmp
+    mv -f ${tmpdir}/count.rev.txt.tmp ${tmpdir}/count.rev.txt
+  done
+
+
+  ###
+  ### merge fwd & rev
+  ###
+  cat ${tmpdir}/count.fwd.txt \
+  | awk '{buf="eachCountsFwd:";for(i=2;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
+  | sed 's/Fwd:,/Fwd:/' \
+  > ${tmpdir}/count.fwd.txt.tmp
+  mv -f ${tmpdir}/count.fwd.txt.tmp ${tmpdir}/count.fwd.txt
+
+  cat ${tmpdir}/count.rev.txt \
+  | awk '{buf="eachCountsRev:";for(i=2;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
+  | sed 's/Rev:,/Rev:/' \
+  > ${tmpdir}/count.rev.txt.tmp
+  mv -f ${tmpdir}/count.rev.txt.tmp ${tmpdir}/count.rev.txt
+
+  join -t "	" \
+    ${tmpdir}/count.fwd.txt \
+    ${tmpdir}/count.rev.txt \
+  > ${tmpdir}/count.fwdrev.txt
+
+  eachTotals=$( cut -f 2 ${tmpdir}/totals.txt | xargs | sed -e 's/ /,/g' )
+  cat ${tmpdir}/count.fwdrev.txt \
+  | awk --assign eachTotals=$eachTotals 'BEGIN{OFS="\t"}{
+    split($2,keyValue,":");fwdN=split(keyValue[2],eachCountsFwd,",");
+    split($3,keyValue,":");revN=split(keyValue[2],eachCountsRev,",");
+    buf="eachCounts:"
+    bufD="eachDirectionalities:"
+    for (i=1; i<=fwdN; i++) {
+      tmpTotal = eachCountsFwd[i] + eachCountsRev[i]
+      tmpDir = "NA"
+      if (tmpTotal > 0) {
+        tmpDir = (eachCountsFwd[i] - eachCountsRev[i]) / tmpTotal
+        if (tmpDir < 0) {tmpDir = tmpDir * -1}
+      }
+      buf = buf","tmpTotal
+      bufD = bufD","tmpDir
+    }
+    print $1,$2,$3,buf,bufD,"eachTotals:"eachTotals
+  }' \
+  | sed -e 's/eachCounts:,/eachCounts:/'  \
+  | sed -e 's/eachDirectionalities:,/eachDirectionalities:/'  \
+  | sed -e 's/#/\t/g' \
+  | awk 'BEGIN{OFS="\t"}{$4=$4"|"$10"|"$11"|"$12"|"$13"|"$14;print}' \
+  | cut -f 1-9 \
+  | awk 'BEGIN{OFS="\t"}{
+      if (match( $4, /eachCounts:[-.0-9,]+/)) {
+        ec_str = substr($4, RSTART, RLENGTH)
+        sub("eachCounts:", "", ec_str)
+        ec_n = split(ec_str,ec,",")
+      }
+      if (match( $4, /eachTotals:[-.0-9,]+/)) {
+        et_str = substr($4, RSTART, RLENGTH)
+        sub("eachTotals:", "", et_str)
+        et_n = split(et_str,et,",")
+      }
+
+      countsMax = 0
+      tpmMax = 0
+      for (i=1;i<=ec_n;i++)
+      {
+        tpm = 1e6 * (ec[i]+0)/(et[i]+0)
+        if ( tpm > tpmMax){tpmMax = tpm}
+        if ( ec[i] > countsMax){countsMax = ec[i]}
+      }
+      $4 = $4"|countsMax:"countsMax"|tpmMax:"tpmMax
+      print
+    }' \
+  | gzip -c > ${out_prefix}_eachcounts.bed.gz
+
+  mv -f ${tmpdir}/totals.txt ${out_prefix}_eachtotals.txt
+}
+
 
 
 cmd_filter ()
@@ -901,18 +1099,22 @@ cmd_filter ()
   min_directionality=0
   max_counts=-1
   min_counts=0
+  max_tpm=-1
+  min_tpm=0
   min_counts_in_each_strand=0
   min_ctssMax=0
   min_ctssMax_in_each_strand=0
   invert_match="false"
 
-  while getopts D:d:T:t:E:e:x:y:v opt
+  while getopts D:d:C:c:T:t:e:x:y:v opt
   do
     case ${opt} in
     D) max_directionality=${OPTARG};;
     d) min_directionality=${OPTARG};;
-    T) max_counts=${OPTARG};;
-    t) min_counts=${OPTARG};;
+    C) max_counts=${OPTARG};;
+    c) min_counts=${OPTARG};;
+    T) max_tpm=${OPTARG};;
+    t) min_tpm=${OPTARG};;
     e) min_counts_in_each_strand=${OPTARG};;
     x) min_ctssMax=${OPTARG};;
     y) min_ctssMax_in_each_strand=${OPTARG};;
@@ -927,6 +1129,8 @@ cmd_filter ()
     --assign min_directionality=$min_directionality \
     --assign max_counts=$max_counts \
     --assign min_counts=$min_counts \
+    --assign max_tpm=$max_tpm \
+    --assign min_tpm=$min_tpm \
     --assign min_counts_in_each_strand=$min_counts_in_each_strand \
     --assign min_ctssMax=$min_ctssMax \
     --assign min_ctssMax_in_each_strand=$min_ctssMax_in_each_strand \
@@ -972,6 +1176,11 @@ cmd_filter ()
       sub("ctssMaxRev:", "", cmr)
       cmr += 0;
     }
+    if (match( $0, /tpm:[-.0-9]+/)) {
+      tpm = substr($0, RSTART, RLENGTH)
+      sub("tpm:", "", tpm)
+      tpm += 0;
+    }
 
     if ( ( cm == 0 ) && ( min_ctssMax > 0) ) {
       print "Error: No ctssMax found. Related filters cannot be used.\n" > "/dev/stderr"
@@ -989,6 +1198,10 @@ cmd_filter ()
     else if ( ( max_counts >= 0) &&
               ( c > max_counts ) )               { flagM = "false" }
     else if ( c < min_counts )                   { flagM = "false" }
+
+    else if ( ( max_tpm >= 0  ) &&
+              ( tpm > max_tpm ) )                { flagM = "false" }
+    else if ( tpm < min_tpm )                    { flagM = "false" }
 
     else if ( f < min_counts_in_each_strand )    { flagM = "false" }
     else if ( r < min_counts_in_each_strand )    { flagM = "false" }
@@ -1039,9 +1252,8 @@ cmd_run ()
   $0 total \
     -i $infilesList \
     -c $chrom_sizes \
-    -m ${out_prefix}_max.ctss.bed.gz \
-    -p ${parallel} \
-  | gzip -c > ${out_prefix}_total.ctss.bed.gz
+    -o ${out_prefix} \
+    -p ${parallel}
 
   $0 call \
     -i ${out_prefix}_total.ctss.bed.gz \
@@ -1052,9 +1264,15 @@ cmd_run ()
     -z ${prog_compression} \
   | gzip -c > ${out_prefix}_region.bed.gz
 
-  gunzip -c ${out_prefix}_region.bed.gz \
+  $0 eachcount \
+    -i ${out_prefix}_region.bed.gz \
+    -e ${out_prefix}_each.ctss.bw.tar \
+    -o ${out_prefix}_region \
+    -p ${parallel}
+
+  gunzip -c ${out_prefix}_region_eachcounts.bed.gz \
   | $0 filter \
-  | gzip -c > ${out_prefix}_region_filtered.bed.gz
+  | gzip -c > ${out_prefix}_region_eachcounts_filtered.bed.gz
 }
 
 
@@ -1074,6 +1292,10 @@ case "${1:-}" in
   call)
     shift;
     cmd_call "$@"
+    ;;
+  eachcount)
+    shift;
+    cmd_eachcount "$@"
     ;;
   filter)
     shift;
