@@ -13,9 +13,9 @@ usage()
 
 usage: $0 <command> <args>
 
-  #---------------------------------
-  # run all processes at once
-  #---------------------------------
+  #------------------------------------------------
+  # run all processes at once, except for filtering
+  #------------------------------------------------
   $0 run 
     -i infilesList
     -c chrom_sizes
@@ -24,8 +24,9 @@ usage: $0 <command> <args>
     [-p parallel(default:20)]
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
-  Note that each of the inputt files should be
-  BED-formatted CTSS profiles with gzip (*.ctss.bed.gz)
+  Note that each of the input files should be
+  BED-formatted CTSS profiles with gzip (*.ctss.bed.gz),
+  and the file 'infilesList' should have their paths.
 
 
   #---------------------------------
@@ -77,7 +78,7 @@ usage: $0 <command> <args>
           [-v] (for invert match, such as "grep -v")
 
 
-(version. 2021.5.11)
+(version. 2021.6.6)
 
 
 Overview
@@ -729,6 +730,8 @@ counts_fr ()
         if ( max_ctss < max_rev ){max_ctss = max_rev}
         name = name"|ctssMax:"max_ctss"|ctssMaxFwd:"max_fwd"|ctssMaxRev:"max_rev
       }
+
+      color = sprintf( "%d,0,%d", 127 + 127 * directionality , 127 - 127 * directionality )
       print chr, start, stop, name, directionality_abs, strand, thickStart, thickStop, color
     }'
 }
@@ -1215,9 +1218,9 @@ cmd_filter ()
     if ( invert_match == "true" ) {
       if ( flagM == "true" ) { flagM = "false" } else { flagM = "true" }
     }
+    #color = sprintf( "%d,0,%d", 127 + 127 * s , 127 - 127 * s )
+    #$9 = color
 
-    color = sprintf( "%d,0,%d", 127 + 127 * s , 127 - 127 * s )
-    $9 = color
     if ( flagM == "true" ) { print }
   }'
 }
@@ -1270,9 +1273,9 @@ cmd_run ()
     -o ${out_prefix}_region \
     -p ${parallel}
 
-  gunzip -c ${out_prefix}_region_eachcounts.bed.gz \
-  | $0 filter \
-  | gzip -c > ${out_prefix}_region_eachcounts_filtered.bed.gz
+  #gunzip -c ${out_prefix}_region_eachcounts.bed.gz \
+  #| $0 filter \
+  #| gzip -c > ${out_prefix}_region_eachcounts_filtered.bed.gz
 }
 
 
