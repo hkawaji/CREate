@@ -16,13 +16,16 @@ function usage()
 
 usage: $0  -i infile.star.bam 
            -g genome.fa 
-           -o outfile.bed.gz
           [-q mapQ (default:20)]
           [-n threads (default:8)]
           [-w filter_window (default:20)]
           [-b filter_target_base (default:G; otheriwse N)]
           [-r ratio_Gaddition (default:0.89)]
           [-f full_set_of_intermediate_files (default: null)]
+
+for example:
+
+  $0 -i infile.star.bam -g genome.fa | grep -v '_decoy' | gzip -c > output.bed.gz
 
 This program counts CAGE read 5'ends per CTSS by using only reads with
 unencoded "G" as possible, which is added by terminal transferase activity
@@ -70,11 +73,10 @@ EOF
 }
 
 ### handle options
-while getopts i:o:q:n:w:b:f:r:g: opt
+while getopts i:q:n:w:b:f:r:g: opt
 do
   case ${opt} in
   i) infile=${OPTARG};;
-  o) outfile=${OPTARG};;
   q) mapQ=${OPTARG};;
   n) threads=${OPTARG};;
   w) filter_window=${OPTARG};;
@@ -87,7 +89,7 @@ do
 done
 
 if [ ! -n "${infile-}" ]; then usage; fi
-if [ ! -n "${outfile-}" ]; then usage; fi
+#if [ ! -n "${outfile-}" ]; then usage; fi
 if [ ! -n "${genome_fa-}" ]; then usage; fi
 
 ### setup tmpdir
@@ -424,10 +426,11 @@ rm -f ${tmpdir}/correctG_raw.bed
 splitBam2UnmatchMatchOthers
 correctG
 
-cp -f ${tmpdir}/correctG.bed.gz ${outfile}
 if [ -n "${outfile_full-}" ]; then
   ( cd ${tmpdir} ; tar cvf - . ) | gzip -c  > $outfile_full
 fi
+#cp -f ${tmpdir}/correctG.bed.gz ${outfile}
+gunzip -c ${tmpdir}/correctG.bed.gz
 
 
 
