@@ -70,12 +70,18 @@ usage: $0 <command> <args>
   | $0 filter
           [-D max_directionality(default:1)]
           [-d min_directionality(default:0)]
-          [-T max_counts(default:-1)]
-          [-t min_counts(default:0)]
+          [-C max_counts(default:-1)]
+          [-c min_counts(default:0)]
+          [-T max_tpm(default:-1)]
+          [-t min_tpm(default:0)]
           [-e min_counts_in_each_strand(default:0)]
           [-x min_ctssMax(default:0)]
           [-y min_ctssMax_in_each_strand(default:0)]
           [-v] (for invert match, such as "grep -v")
+
+  recommended parameters for both cis-regulatory elements of promoters and enhancers:
+    * -c 4 -t 0.05  (for (NET-)CAGE data with G selection and correction )
+    * -c 4 -t 0.5   (for (NET-)CAGE data without G selection and correction )
 
 
 (version. 2021.6.6)
@@ -819,11 +825,25 @@ cmd_total ()
         }
       }' \
     | gzip -c > ${tmpdir}/merge/${operation}.ctss.bed.gz
+
+    gunzip -c ${tmpdir}/merge/${operation}.ctss.bed.gz \
+    | ctssbed_to_bg + > ${tmpdir}/merge/${operation}.ctss.fwd.bg
+    gunzip -c ${tmpdir}/merge/${operation}.ctss.bed.gz \
+    | ctssbed_to_bg - > ${tmpdir}/merge/${operation}.ctss.rev.bg
+    bedGraphToBigWig ${tmpdir}/merge/${operation}.ctss.fwd.bg $chrom_sizes ${tmpdir}/merge/${operation}.ctss.fwd.bw
+    bedGraphToBigWig ${tmpdir}/merge/${operation}.ctss.rev.bg $chrom_sizes ${tmpdir}/merge/${operation}.ctss.rev.bw
+
+    for suffix in .bed.gz .fwd.bw .rev.bw
+    do
+      mv -f ${tmpdir}/merge/${operation}.ctss${suffix} ${out_prefix}_${operation}.ctss${suffix}
+    done
   done
 
-  mv ${tmpdir}/merge/total.ctss.bed.gz ${out_prefix}_total.ctss.bed.gz
-  mv ${tmpdir}/merge/max.ctss.bed.gz ${out_prefix}_max.ctss.bed.gz
   (cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
+
+  #mv ${tmpdir}/merge/total.ctss.bed.gz ${out_prefix}_total.ctss.bed.gz
+  #mv ${tmpdir}/merge/max.ctss.bed.gz ${out_prefix}_max.ctss.bed.gz
+  #(cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
 }
 
 
