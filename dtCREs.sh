@@ -41,9 +41,8 @@ usage: $0 <command> <args>
           [-p parallel(default:20)]
 
     which produces the following files:
-      * PREFIX_total.ctss.bed.gz
-      * PREFIX_max.ctss.bed.gz
-      * PREFIX_each.ctss.bw.tar 
+      * PREFIX_total.ctss.{bed.gz|fwd.bw|rev.bw}
+      * PREFIX_max.ctss.{bed.gz|fwd.bw|rev.bw}
 
 
   # call (identify) divergent regions
@@ -77,6 +76,8 @@ usage: $0 <command> <args>
           [-e min_counts_in_each_strand(default:0)]
           [-x min_ctssMax(default:0)]
           [-y min_ctssMax_in_each_strand(default:0)]
+          [-W max_width(default:-1)]
+          [-w min_width(default:0)]
           [-v] (for invert match, such as "grep -v")
 
   recommended parameters for both cis-regulatory elements of promoters and enhancers:
@@ -1127,9 +1128,11 @@ cmd_filter ()
   min_counts_in_each_strand=0
   min_ctssMax=0
   min_ctssMax_in_each_strand=0
+  max_width=-1
+  min_width=0
   invert_match="false"
 
-  while getopts D:d:C:c:T:t:e:x:y:v opt
+  while getopts D:d:C:c:T:t:e:x:y:w:W:v opt
   do
     case ${opt} in
     D) max_directionality=${OPTARG};;
@@ -1141,6 +1144,8 @@ cmd_filter ()
     e) min_counts_in_each_strand=${OPTARG};;
     x) min_ctssMax=${OPTARG};;
     y) min_ctssMax_in_each_strand=${OPTARG};;
+    W) max_width=${OPTARG};;
+    w) min_width=${OPTARG};;
     v) invert_match="true";;
     *) usage;;
     esac
@@ -1157,6 +1162,8 @@ cmd_filter ()
     --assign min_counts_in_each_strand=$min_counts_in_each_strand \
     --assign min_ctssMax=$min_ctssMax \
     --assign min_ctssMax_in_each_strand=$min_ctssMax_in_each_strand \
+    --assign max_width=$max_width \
+    --assign min_width=$min_width \
     --assign invert_match=$invert_match \
   'BEGIN{OFS="\t"}{
 
@@ -1214,6 +1221,8 @@ cmd_filter ()
       exit 1
     }
 
+    width = $3 - $2
+
     flagM = "true"
     if      ( d > max_directionality )           { flagM = "false" }
     else if ( d < min_directionality )           { flagM = "false" }
@@ -1233,6 +1242,10 @@ cmd_filter ()
     else if ( cmf < min_ctssMax_in_each_strand ) { flagM = "false" }
     else if ( cmr < min_ctssMax_in_each_strand ) { flagM = "false" }
 
+    else if ( ( max_width >= 0  ) &&
+              ( width > max_width ) )                { flagM = "false" }
+    else if ( width < min_width )                    { flagM = "false" }
+
 
     # invert
     if ( invert_match == "true" ) {
@@ -1245,6 +1258,38 @@ cmd_filter ()
   }'
 }
 
+
+
+
+cmd_classify ()
+{
+  ### handle options
+  tpm_threshold=2
+  while getopts t: opt
+  do
+    case ${opt} in
+    t) tpm_threshold=${OPTARG};;
+    *) usage;;
+   esac
+  done
+
+  awk --assign tpm_threshold=$tpm_threshold 'BEGIN{OFS="\t"}{
+    if (match( $0, /tpm:[-.0-9]+/)) {
+      tpm = substr($0, RSTART, RLENGTH)
+      sub("tpm:", "", tpm)
+      tpm += 0;
+    }
+    if (match( $0, /directionality:[-.0-9]+/)) {
+      s = substr($0, RSTART, RLENGTH)
+      sub("directionality:", "", s)
+      d = s + 0;
+    }
+
+    if (tpm >= tpm_threshold ) { $4 = "class:PrmL|"$4}
+    else { $4 = "class:EnhL|"$4; $9 = "253,167,1"}
+    print
+  }'
+}
 
 
 cmd_run ()
@@ -1323,6 +1368,10 @@ case "${1:-}" in
   filter)
     shift;
     cmd_filter "$@"
+    ;;
+  classify)
+    shift;
+    cmd_classify "$@"
     ;;
   *)
     usage
