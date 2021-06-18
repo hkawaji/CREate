@@ -13,31 +13,42 @@ usage()
 
 usage: $0 <command> <args>
 
-  #------------------------------------------------
-  # run all processes at once, except for filtering
-  #------------------------------------------------
-  $0 run 
-    -i infilesList
-    -c chrom_sizes
-    -o out_prefix
-    [-w window_size(default:200)]
-    [-p parallel(default:20)]
+  #--------------------------------------------------------------
+  # run a series of processes (total, call, and filter) at once
+  #--------------------------------------------------------------
+  $0 run  \\
+    -i infilesList \\
+    -c chrom_sizes \\
+    -o out_prefix \\
+    [-w window_size(default:200)] \\
+    [-l min_length] \\
+    [-n min_counts] \\
+    [-t min_tpm] \\
+    [-p parallel(default:20)] \\
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
   Note that each of the input files should be
   BED-formatted CTSS profiles with gzip (*.ctss.bed.gz),
   and the file 'infilesList' should have their paths.
 
+  The resulting files are:
+
+  * out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
+  * out_prefix_each.ctss.bw.tar
+  * out_prefix_region.bed.gz
+  * out_prefix_region_F{FILTERING_PARAMS}.bed.gz
+
+
 
   #---------------------------------
   # run individual processes each by each
   #---------------------------------
 
-  # produce total (and max) CTSS counts by merging CTSS profiles
-  $0 total
-          -i infileList
-          -c chrom_sizes
-          -o out_prefix
+  # produce total and max CTSS counts by merging CTSS profiles
+  $0 total \\
+          -i infileList \\
+          -c chrom_sizes \\
+          -o out_prefix \\
           [-p parallel(default:20)]
 
     which produces the following files:
@@ -46,38 +57,30 @@ usage: $0 <command> <args>
 
 
   # call (identify) divergent regions
-  $0 call
-          -i infile.ctss.bed.gz
-          -c chrom_sizes
-          [-w window_size(default:200)]
-          [-m outfileMax.ctss.bed.gz]
-          [-p parallel(default:20)]
+  $0 call \\
+          -i infile.ctss.bed.gz \\
+          -c chrom_sizes \\
+          [-w window_size(default:200)] \\
+          [-m outfileMax.ctss.bed.gz] \\
+          [-p parallel(default:20)] \\
           [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
   | gzip -c > output.bed.gz
 
 
-  # count reads per samples
-  $0 eachcount
-          -i divergently_transcribed_region.bed.gz  (BED9 format)
-          -e infile_each.ctss.bw.tar (archive of bigWig files for each strand)
-          -o out_prefix
-          [-p parallel(default:20)]
-
-
   # filter the divergently transcribed regions
-  gunzip -c output.bed.gz
-  | $0 filter
-          [-D max_directionality(default:1)]
-          [-d min_directionality(default:0)]
-          [-C max_counts(default:-1)]
-          [-c min_counts(default:0)]
-          [-T max_tpm(default:-1)]
-          [-t min_tpm(default:0)]
-          [-e min_counts_in_each_strand(default:0)]
-          [-x min_ctssMax(default:0)]
-          [-y min_ctssMax_in_each_strand(default:0)]
-          [-W max_width(default:-1)]
-          [-w min_width(default:0)]
+  gunzip -c output.bed.gz \\
+  | $0 filter \\
+          [-D max_directionality(default:1)] \\
+          [-d min_directionality(default:0)] \\
+          [-C max_counts(default:-1)] \\
+          [-c min_counts(default:0)] \\
+          [-T max_tpm(default:-1)] \\
+          [-t min_tpm(default:0)] \\
+          [-e min_counts_in_each_strand(default:0)] \\
+          [-x min_ctssMax(default:0)] \\
+          [-y min_ctssMax_in_each_strand(default:0)] \\
+          [-L max_length(default:-1)] \\
+          [-l min_length(default:0)] \\
           [-v] (for invert match, such as "grep -v")
 
   recommended parameters for both cis-regulatory elements of promoters and enhancers:
@@ -85,7 +88,18 @@ usage: $0 <command> <args>
     * -c 4 -t 0.5   (for (NET-)CAGE data without G selection and correction )
 
 
-(version. 2021.6.6)
+  # count reads per samples
+  $0 eachcount \\
+          -i divergently_transcribed_region.bed.gz  (BED9 format) \\
+          -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
+          -o out_prefix \\
+          [-p parallel(default:20)]
+
+  # classify the region
+  $0 classify \\
+          -t tpm_threshold(default: 2)
+
+(version. 2021.6.18)
 
 
 Overview
@@ -148,8 +162,8 @@ regions may overlap.
 
 Requirements
 -------------
-* bedtools
-* jksrc
+* bedtools (https://github.com/arq5x/bedtools2)
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/)
 
 
 
@@ -1128,11 +1142,11 @@ cmd_filter ()
   min_counts_in_each_strand=0
   min_ctssMax=0
   min_ctssMax_in_each_strand=0
-  max_width=-1
-  min_width=0
+  max_length=-1
+  min_length=0
   invert_match="false"
 
-  while getopts D:d:C:c:T:t:e:x:y:w:W:v opt
+  while getopts D:d:C:c:T:t:e:x:y:l:L:v opt
   do
     case ${opt} in
     D) max_directionality=${OPTARG};;
@@ -1144,8 +1158,8 @@ cmd_filter ()
     e) min_counts_in_each_strand=${OPTARG};;
     x) min_ctssMax=${OPTARG};;
     y) min_ctssMax_in_each_strand=${OPTARG};;
-    W) max_width=${OPTARG};;
-    w) min_width=${OPTARG};;
+    L) max_length=${OPTARG};;
+    l) min_length=${OPTARG};;
     v) invert_match="true";;
     *) usage;;
     esac
@@ -1162,8 +1176,8 @@ cmd_filter ()
     --assign min_counts_in_each_strand=$min_counts_in_each_strand \
     --assign min_ctssMax=$min_ctssMax \
     --assign min_ctssMax_in_each_strand=$min_ctssMax_in_each_strand \
-    --assign max_width=$max_width \
-    --assign min_width=$min_width \
+    --assign max_length=$max_length \
+    --assign min_length=$min_length \
     --assign invert_match=$invert_match \
   'BEGIN{OFS="\t"}{
 
@@ -1221,7 +1235,7 @@ cmd_filter ()
       exit 1
     }
 
-    width = $3 - $2
+    len = $3 - $2
 
     flagM = "true"
     if      ( d > max_directionality )           { flagM = "false" }
@@ -1242,9 +1256,9 @@ cmd_filter ()
     else if ( cmf < min_ctssMax_in_each_strand ) { flagM = "false" }
     else if ( cmr < min_ctssMax_in_each_strand ) { flagM = "false" }
 
-    else if ( ( max_width >= 0  ) &&
-              ( width > max_width ) )                { flagM = "false" }
-    else if ( width < min_width )                    { flagM = "false" }
+    else if ( ( max_length >= 0  ) &&
+              ( len > max_length ) )                { flagM = "false" }
+    else if ( len < min_length )                    { flagM = "false" }
 
 
     # invert
@@ -1299,14 +1313,20 @@ cmd_run ()
   window_size=200
   parallel=20
   prog_compression=gzip
+  min_length=5
+  min_counts=4
+  min_tpm=0.05
 
-  while getopts i:c:o:w:p:z: opt
+  while getopts i:c:o:w:l:n:t:p:z: opt
   do
     case ${opt} in
     i) infilesList=${OPTARG};;
     c) chrom_sizes=${OPTARG};;
     o) out_prefix=${OPTARG};;
     w) window_size=${OPTARG};;
+    l) min_length=${OPTARG};;
+    n) min_counts=${OPTARG};;
+    t) min_tpm=${OPTARG};;
     p) parallel=${OPTARG};;
     z) prog_compression=${OPTARG};;
     *) usage;;
@@ -1332,11 +1352,19 @@ cmd_run ()
     -z ${prog_compression} \
   | gzip -c > ${out_prefix}_region.bed.gz
 
-  $0 eachcount \
-    -i ${out_prefix}_region.bed.gz \
-    -e ${out_prefix}_each.ctss.bw.tar \
-    -o ${out_prefix}_region \
-    -p ${parallel}
+  # select regions with length >= 5bp, counts >= 4, tpm >= 0.05
+  gunzip -c ${out_prefix}_region.bed.gz \
+  | $0 filter -l ${min_length} -c ${min_counts} -t ${min_tpm} \
+  | gzip -c > ${out_prefix}_region_Fl${min_length}c${min_counts}t${min_tpm}.bed.gz
+
+  #| gzip -c > ${out_prefix}_region_filtered.bed.gz
+
+
+  #$0 eachcount \
+  #  -i ${out_prefix}_region.bed.gz \
+  #  -e ${out_prefix}_each.ctss.bw.tar \
+  #  -o ${out_prefix}_region \
+  #  -p ${parallel}
 
   #gunzip -c ${out_prefix}_region_eachcounts.bed.gz \
   #| $0 filter \
