@@ -24,6 +24,7 @@ usage: $0 <command> <args>
     [-l min_length] \\
     [-n min_counts] \\
     [-t min_tpm] \\
+    [-e ELS_or_PLS_threshold(default: 2)]
     [-p parallel(default:20)] \\
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
@@ -33,6 +34,7 @@ usage: $0 <command> <args>
 
   The resulting files are:
 
+  * out_prefix_params.txt
   * out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
   * out_prefix_each.ctss.bw.tar
   * out_prefix_region.bed.gz
@@ -73,20 +75,22 @@ usage: $0 <command> <args>
           [-D max_directionality(default:1)] \\
           [-d min_directionality(default:0)] \\
           [-C max_counts(default:-1)] \\
-          [-c min_counts(default:0)] \\
+          [-c min_counts(default:4)] \\
           [-T max_tpm(default:-1)] \\
-          [-t min_tpm(default:0)] \\
+          [-t min_tpm(default:0.05)] \\
           [-e min_counts_in_each_strand(default:0)] \\
           [-x min_ctssMax(default:0)] \\
           [-y min_ctssMax_in_each_strand(default:0)] \\
           [-L max_length(default:-1)] \\
-          [-l min_length(default:0)] \\
+          [-l min_length(default:5)] \\
           [-v] (for invert match, such as "grep -v")
 
-  recommended parameters for both cis-regulatory elements of promoters and enhancers:
-    * -c 4 -t 0.05  (for (NET-)CAGE data with G selection and correction )
-    * -c 4 -t 0.5   (for (NET-)CAGE data without G selection and correction )
+  for CAGE data withoug G selection, higher threshold (-t 0.5) is
+  recommended.
 
+  # classify the region
+  $0 classify \\
+          [-e ELS_or_PLS_threshold(default: 2)]
 
   # count reads per samples
   $0 eachcount \\
@@ -95,38 +99,33 @@ usage: $0 <command> <args>
           -o out_prefix \\
           [-p parallel(default:20)]
 
-  # classify the region
-  $0 classify \\
-          -t tpm_threshold(default: 2)
-
-(version. 2021.6.18)
+(version. 2021.6.21)
 
 
 Overview
 --------
-Cis-regulatory elements, promoter and enhancer, are known
-to be transcribed in both orientation (foward and reverse)
-divergently. This nature is evident in particular for enhancer,
-as candidate regions are often defined through finding bidirectionally
-transcribed regions, while many promoters are known to have PROMPTs
-(promoter upstream transcripts). 
+This software is developed to identify cis-regulatory elements
+based on transcription initiation activities monitored by CAGE
+(Cap analysis of gene expression). Promoters are known to have
+PROMPTs (promoter upstream transcripts) in antisense transcription,
+and enhancers are known to be transcribed bidirectionally. Notably
+the nature of divergent transcription is shared, while uni-directional
+transcription often happen not only in promoters but also in enhancers.
+This identify cis- regulatory elements through finding regions
+transcribed both divergently and uni-directionally. 
 
-In those analysis, identification of divergently transcribed
-regions is the first step. The pioneering work to identify
-transcribed enhancers (Andersson et al. 2014) takes TSS clusters
-or peaks, and finds divergent pairs of them. However, existing
-methods of TSS clustering (or peak calling), such as single-likage
-clustering (Carninci et al. 2016; or 'mergeBed' in bedtools),
-DPI (Forrest et al. 2014), Paraclu (Frith et al. 2008) are not
-necessarily designed for the purpose.
+This software is developed to identify cis-regulatory elements
+based on transcription initiation activities monitored by CAGE
+(Cap analysis of gene expression). Promoters are known to have
+PROMPTs (promoter upstream transcripts) in antisense transcription,
+and enhancers are known to be transcribed bidirectionally. Notably
+the nature of divergent transcription is shared, while uni-directional
+transcription often happen not only in promoters but also in enhancers.
+Genomic regions transcribed both divergently and uni-directionally are
+determined as candidates of cis-regulatory elements. 
 
-This program is designed to identify divergently transcribed regions,
-not convergent, through scanning genomic bases without TSS clustering
-nor peak identification.
-
-'convergency' is defined as below, and any regions with convergency
-is less than 1 are divergent.
-
+Given a genomic position ([N] below) and transcription initiation profiles
+in sense and antisense, 'convergency' is defined as below, 
 
   convergency = ( left_fwd + right_rev ) / ( left_rev + right_fwd )
 
@@ -138,15 +137,17 @@ where
            -------------[N]----------------
   reverse    (left_rev)     (right_rev)
 
-
-'filter' subcommand can be used for finding bidirectionally
-transcribed regions.
+It has to be noted that convergency can also be defined in uni-directional
+cases, but not in case of (left_rev + right_fwd ) is zero. This tool
+explore genomic regions with convergency less than 1, and neighborig
+non-convergent positions are concatenated to be a 'core' described below.
 
 
 Output
 -------
-BED9 format, where the thickStart/thickEnd specify 'core' region which is divergent('#').
-The start/end positions indicate the covered region where the signals are aggregated('+').
+BED9 format, where the thickStart/thickEnd specify 'core' region which is
+predominantly divergent('#'). The start/end positions indicate the covered
+region where the signals are aggregated('+').
 
         ffffffffffff
    +++++########++++
@@ -381,10 +382,6 @@ accumulate_neiboring_signals ()
   | join -t "	" /dev/stdin <( cat ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt.COMP | $PROG_DECOMP ) \
   | join -t "	" /dev/stdin <( cat ${tmpdir}/accumulate_neiboring_signals_right_rev.txt.COMP | $PROG_DECOMP )
 
-  #cat ${tmpdir}/accumulate_neiboring_signals_left_fwd.txt \
-  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_left_rev.txt \
-  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_fwd.txt \
-  #| join -t "	" /dev/stdin ${tmpdir}/accumulate_neiboring_signals_right_rev.txt
 }
 
 
@@ -532,7 +529,7 @@ find_max_scores () {
   | cut -f 1 \
   | sort $SORT_OPT_NAME \
   | uniq \
-  | join -j 1 -t "	" -a 1 -o 1.1,2.2 -e "NA|NA|NA|NA|NA|NA" - ${tmpdir}/find_max_scores_left.txt \
+  | join -j 1 -t "	" -a 1 -o 1.1,2.2     -e "NA|NA|NA|NA|NA|NA" - ${tmpdir}/find_max_scores_left.txt \
   | join -j 1 -t "	" -a 1 -o 1.1,1.2,2.2 -e "NA|NA|NA|NA|NA|NA" - ${tmpdir}/find_max_scores_right.txt \
   > ${tmpdir}/find_max_scores.txt
 
@@ -540,7 +537,6 @@ find_max_scores () {
   | sed -e 's/|/\t/g' \
   | awk 'BEGIN{OFS="\t"}{
       chr = $1; start = $2; stop = $3;
-      name = chr"|"start"|"stop;
 
       chrL = $4; startL = $5; stopL = $6;
       scoreL = $7; leftmost = $9;
@@ -560,12 +556,14 @@ find_max_scores () {
 
       if ( ( leftmost < rightmost ) && (startL < stopR) )
       {
-        print chr, leftmost, rightmost, name, 0, ".",
-              startL, stopR,"0,0,0"
+        oChr = chr; oStart = leftmost; oStop = rightmost;
+        thickStart = startL; thickStop = stopR;
+
       } else {
-        print chr, start,    stop,      name, 0, ".",
-              start,      stop,     "0,0,0"
+        oChr = chr; oStart = start; oStop = stop
+        thickStart = start; thickStop = stop;
       }
+      print oChr, oStart, oStop, ".", 0, ".", thickStart, thickStop, "0,0,0"
     }' \
   > ${tmpdir}/find_max_scores.bed
 
@@ -583,8 +581,8 @@ find_max_scores () {
         if (start > pos_a[i] ) { start = pos_a[i] }
         if (stop < pos_a[i] ) { stop = pos_a[i] }
       }
-      name = chr"|"start"|"stop
-        print chr, start, stop, name, 0, ".", $2, $3, "0,0,0"
+      name = chr","start","stop
+      print chr, start, stop, name, 0, ".", $2, $3, "0,0,0"
     }'
 }
 
@@ -604,8 +602,8 @@ tighten_unidirectional ()
     ${tmpdir}/trim_unidirectional.outbound.bed \
     /dev/stdout \
   | awk '{if($4 == 0){print $1}}' \
-  | sed -e 's/|/\t/g' \
-  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1"|"$2"|"$3}' \
+  | sed -e 's/,/\t/g' \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3, $1","$2","$3 }' \
   | sort $SORT_OPT_BED \
   | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.rev.bg \
   | groupBy -g 1,2,3,4 -c 7 -o collapse \
@@ -626,8 +624,8 @@ tighten_unidirectional ()
     ${tmpdir}/trim_unidirectional.outbound.bed \
     /dev/stdout \
   | awk '{if($4 == 0){print $1}}' \
-  | sed -e 's/|/\t/g' \
-  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3,$1"|"$2"|"$3}' \
+  | sed -e 's/,/\t/g' \
+  | awk 'BEGIN{OFS="\t"}{print $1,$2,$3, $1","$2","$3}' \
   | sort $SORT_OPT_BED \
   | intersectBed -sorted -wa -wb -a - -b ${tmpdir}/infile.fwd.bg \
   | groupBy -g 1,2,3,4 -c 6 -o collapse \
@@ -656,7 +654,8 @@ tighten_unidirectional ()
       color = $9 ; flag = $10; pos = $11;
       if (flag == "leftmost") { start = pos; thickStart = pos}
       if (flag == "rightmost") { stop = pos; thickStop = pos}
-      name = chr"|"start"|"stop
+      #name = chr"|"start"|"stop
+      name = chr ","  start ","  stop ","  thickStart  "," thickStop
       print chr, start, stop, name, score, strand, thickStart, thickStop, color
     }'
 }
@@ -855,10 +854,6 @@ cmd_total ()
   done
 
   (cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
-
-  #mv ${tmpdir}/merge/total.ctss.bed.gz ${out_prefix}_total.ctss.bed.gz
-  #mv ${tmpdir}/merge/max.ctss.bed.gz ${out_prefix}_max.ctss.bed.gz
-  #(cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
 }
 
 
@@ -983,20 +978,27 @@ cmd_eachcount ()
 
 
   ###
-  ### prep regions (core + extended for forward or reverse)
+  ### assign tentative name
   ###
   gunzip -c ${infile} \
-  | sed -e 's/\t/#/g' \
-  | awk 'BEGIN{OFS="\t";FS="#"}{
-    chr=$1;start=$2;stop=$3;core_start=$7;core_stop=$8;name=$4
-    print chr, core_start, stop, $_
+  | grep -v ^# \
+  | sort -k1,1 -k2,2n \
+  | awk '{printf "LN%012d\t%s\n", NR, $0}' \
+  > ${tmpdir}/LN_infile.txt
+
+  ###
+  ### prep regions (core + extended for forward or reverse)
+  ###
+  cat ${tmpdir}/LN_infile.txt \
+  | awk 'BEGIN{OFS="\t"}{
+    chr=$2;start=$3;stop=$4;core_start=$8;core_stop=$9;name=$1
+    print chr, core_start, stop, name
   }' > ${tmpdir}/fwd.bed
 
-  gunzip -c ${infile} \
-  | sed -e 's/\t/#/g' \
-  | awk 'BEGIN{OFS="\t";FS="#"}{
-    chr=$1;start=$2;stop=$3;core_start=$7;core_stop=$8;name=$4
-    print chr, start, core_stop, $_
+  cat ${tmpdir}/LN_infile.txt \
+  | awk 'BEGIN{OFS="\t"}{
+    chr=$2;start=$3;stop=$4;core_start=$8;core_stop=$9;name=$1
+    print chr, start, core_stop, name
   }' > ${tmpdir}/rev.bed
 
 
@@ -1028,30 +1030,39 @@ cmd_eachcount ()
   ### counts in parallel
   ###
   cut -f 1 ${tmpdir}/totals.txt \
-  | xargs -L 1 -P ${parallel} -I % bigWigAverageOverBed ${tmpdir}/each/%.fwd.bw ${tmpdir}/fwd.bed ${tmpdir}/each/%.fwd.bw.txt
+  | xargs -L 1 -P ${parallel} -I % sh -c  \
+    "bigWigAverageOverBed ${tmpdir}/each/%.fwd.bw ${tmpdir}/fwd.bed ${tmpdir}/each/%.fwd.bw.txt; gzip ${tmpdir}/each/%.fwd.bw.txt"
 
   cut -f 1 ${tmpdir}/totals.txt \
-  | xargs -L 1 -P ${parallel} -I % bigWigAverageOverBed ${tmpdir}/each/%.rev.bw ${tmpdir}/rev.bed ${tmpdir}/each/%.rev.bw.txt
+  | xargs -L 1 -P ${parallel} -I % sh -c  \
+    "bigWigAverageOverBed ${tmpdir}/each/%.rev.bw ${tmpdir}/rev.bed ${tmpdir}/each/%.rev.bw.txt; gzip ${tmpdir}/each/%.rev.bw.txt"
 
 
   ###
   ### merge each counts 
   ###
-  cut -f 1 ${tmpdir}/each/$( head -1 ${tmpdir}/totals.txt | cut -f 1 ).fwd.bw.txt \
+  gunzip -c ${tmpdir}/each/$( head -1 ${tmpdir}/totals.txt | cut -f 1 ).fwd.bw.txt.gz \
+  | cut -f 1 \
   | tee ${tmpdir}/count.fwd.txt \
   > ${tmpdir}/count.rev.txt 
 
   for X in $( cat ${tmpdir}/totals.txt | cut -f 1  )
   do
-    X=${tmpdir}/each/${X}.fwd.bw.txt
-    join -t "	" ${tmpdir}/count.fwd.txt <(cut -f 1,4 $X) > ${tmpdir}/count.fwd.txt.tmp
+    X=${tmpdir}/each/${X}.fwd.bw.txt.gz
+    gunzip -c $X \
+    | cut -f 1,4 \
+    | join -t "	" ${tmpdir}/count.fwd.txt - \
+    > ${tmpdir}/count.fwd.txt.tmp
     mv -f ${tmpdir}/count.fwd.txt.tmp ${tmpdir}/count.fwd.txt
   done
 
   for X in $( cat ${tmpdir}/totals.txt | cut -f 1  )
   do
-    X=${tmpdir}/each/${X}.rev.bw.txt
-    join -t "	" ${tmpdir}/count.rev.txt <(cut -f 1,4 $X) > ${tmpdir}/count.rev.txt.tmp
+    X=${tmpdir}/each/${X}.rev.bw.txt.gz
+    gunzip -c $X \
+    | cut -f 1,4 \
+    | join -t "	" ${tmpdir}/count.rev.txt - \
+    > ${tmpdir}/count.rev.txt.tmp
     mv -f ${tmpdir}/count.rev.txt.tmp ${tmpdir}/count.rev.txt
   done
 
@@ -1074,6 +1085,7 @@ cmd_eachcount ()
   join -t "	" \
     ${tmpdir}/count.fwd.txt \
     ${tmpdir}/count.rev.txt \
+  | sort -k1,1 \
   > ${tmpdir}/count.fwdrev.txt
 
   eachTotals=$( cut -f 2 ${tmpdir}/totals.txt | xargs | sed -e 's/ /,/g' )
@@ -1097,7 +1109,8 @@ cmd_eachcount ()
   }' \
   | sed -e 's/eachCounts:,/eachCounts:/'  \
   | sed -e 's/eachDirectionalities:,/eachDirectionalities:/'  \
-  | sed -e 's/#/\t/g' \
+  | join -t "	" ${tmpdir}/LN_infile.txt  - \
+  | cut -f 2- \
   | awk 'BEGIN{OFS="\t"}{$4=$4"|"$10"|"$11"|"$12"|"$13"|"$14;print}' \
   | cut -f 1-9 \
   | awk 'BEGIN{OFS="\t"}{
@@ -1136,14 +1149,14 @@ cmd_filter ()
   max_directionality=1
   min_directionality=0
   max_counts=-1
-  min_counts=0
+  min_counts=4
   max_tpm=-1
-  min_tpm=0
+  min_tpm=0.05
   min_counts_in_each_strand=0
   min_ctssMax=0
   min_ctssMax_in_each_strand=0
   max_length=-1
-  min_length=0
+  min_length=5
   invert_match="false"
 
   while getopts D:d:C:c:T:t:e:x:y:l:L:v opt
@@ -1278,29 +1291,36 @@ cmd_filter ()
 cmd_classify ()
 {
   ### handle options
-  tpm_threshold=2
-  while getopts t: opt
+  els_pls_cutoff=2
+  while getopts e: opt
   do
     case ${opt} in
-    t) tpm_threshold=${OPTARG};;
+    e) els_pls_cutoff=${OPTARG};;
     *) usage;;
    esac
   done
 
-  awk --assign tpm_threshold=$tpm_threshold 'BEGIN{OFS="\t"}{
+  awk --assign els_pls_cutoff=$els_pls_cutoff 'BEGIN{OFS="\t"}{
     if (match( $0, /tpm:[-.0-9]+/)) {
       tpm = substr($0, RSTART, RLENGTH)
       sub("tpm:", "", tpm)
       tpm += 0;
     }
-    if (match( $0, /directionality:[-.0-9]+/)) {
-      s = substr($0, RSTART, RLENGTH)
-      sub("directionality:", "", s)
-      d = s + 0;
-    }
 
-    if (tpm >= tpm_threshold ) { $4 = "class:PrmL|"$4}
-    else { $4 = "class:EnhL|"$4; $9 = "253,167,1"}
+    if (tpm >= els_pls_cutoff ) { $4 = $4 "|class:PLA" }
+    else {
+      $4 = $4 "|class:ELA"
+
+      # adjust color for enhancer level activities
+      match( $9, /^[0-9]+,/)
+      r = substr($9, RSTART, RLENGTH - 1)
+      match( $9, /,[0-9]+$/)
+      b = substr($9, RSTART + 1, RLENGTH-1)
+      rb = ( r - b ) / ( r + b )
+      if (rb < 0) {rb = -1 * rb}
+      gstr = sprintf(",%d,", (255 - (128 * rb)))
+      sub( ",0," , gstr , $9 )
+    }
     print
   }'
 }
@@ -1316,8 +1336,9 @@ cmd_run ()
   min_length=5
   min_counts=4
   min_tpm=0.05
+  els_pls_cutoff=2
 
-  while getopts i:c:o:w:l:n:t:p:z: opt
+  while getopts i:c:o:w:l:n:t:p:z:e: opt
   do
     case ${opt} in
     i) infilesList=${OPTARG};;
@@ -1328,6 +1349,7 @@ cmd_run ()
     n) min_counts=${OPTARG};;
     t) min_tpm=${OPTARG};;
     p) parallel=${OPTARG};;
+    e) els_pls_cutoff=${OPTARG};;
     z) prog_compression=${OPTARG};;
     *) usage;;
    esac
@@ -1336,6 +1358,19 @@ cmd_run ()
   if [ ! -n "${infilesList-}" ]; then usage; fi
   if [ ! -n "${chrom_sizes-}" ]; then usage; fi
   if [ ! -n "${out_prefix-}" ]; then usage; fi
+
+  cat <<EOF > ${out_prefix}_param.txt
+-i $infilesList
+-c $chrom_sizes
+-o $out_prefix
+-w $window_size
+-l $min_length
+-n $min_counts
+-t $min_tpm
+-p $parallel
+-e $els_pls_cutoff
+-z $prog_compression
+EOF
 
   $0 total \
     -i $infilesList \
@@ -1352,12 +1387,10 @@ cmd_run ()
     -z ${prog_compression} \
   | gzip -c > ${out_prefix}_region.bed.gz
 
-  # select regions with length >= 5bp, counts >= 4, tpm >= 0.05
   gunzip -c ${out_prefix}_region.bed.gz \
   | $0 filter -l ${min_length} -c ${min_counts} -t ${min_tpm} \
-  | gzip -c > ${out_prefix}_region_Fl${min_length}c${min_counts}t${min_tpm}.bed.gz
-
-  #| gzip -c > ${out_prefix}_region_filtered.bed.gz
+  | $0 classify -e ${els_pls_cutoff} \
+  | gzip -c > ${out_prefix}_region_filtered.bed.gz
 
 
   #$0 eachcount \
@@ -1365,10 +1398,6 @@ cmd_run ()
   #  -e ${out_prefix}_each.ctss.bw.tar \
   #  -o ${out_prefix}_region \
   #  -p ${parallel}
-
-  #gunzip -c ${out_prefix}_region_eachcounts.bed.gz \
-  #| $0 filter \
-  #| gzip -c > ${out_prefix}_region_eachcounts_filtered.bed.gz
 }
 
 
@@ -1389,10 +1418,6 @@ case "${1:-}" in
     shift;
     cmd_call "$@"
     ;;
-  eachcount)
-    shift;
-    cmd_eachcount "$@"
-    ;;
   filter)
     shift;
     cmd_filter "$@"
@@ -1400,6 +1425,10 @@ case "${1:-}" in
   classify)
     shift;
     cmd_classify "$@"
+    ;;
+  eachcount)
+    shift;
+    cmd_eachcount "$@"
     ;;
   *)
     usage
