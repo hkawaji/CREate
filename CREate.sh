@@ -38,8 +38,11 @@ usage: $0 <command> <args>
   * out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
   * out_prefix_each.ctss.bw.tar
   * out_prefix_region.bed.gz
-  * out_prefix_region_F{FILTERING_PARAMS}.bed.gz
+  * out_prefix_region_filtered.bed.gz
 
+
+  For counting reads in each profile, the sub command 
+  ($0 eachcount) is required.
 
 
   #---------------------------------
@@ -77,7 +80,7 @@ usage: $0 <command> <args>
           [-C max_counts(default:-1)] \\
           [-c min_counts(default:4)] \\
           [-T max_tpm(default:-1)] \\
-          [-t min_tpm(default:0.05)] \\
+          [-t min_tpm(default:0)] \\
           [-e min_counts_in_each_strand(default:0)] \\
           [-x min_ctssMax(default:0)] \\
           [-y min_ctssMax_in_each_strand(default:0)] \\
@@ -85,12 +88,16 @@ usage: $0 <command> <args>
           [-l min_length(default:5)] \\
           [-v] (for invert match, such as "grep -v")
 
-  for CAGE data withoug G selection, higher threshold (-t 0.5) is
-  recommended.
+  The conditions of min_length ( -l 5  ) and min_counts ( -c 4)
+  are required to be retained. Additionally, expression (-t TPM)
+  is recommended, where 0.05 and 0.5 are reasonable for CAGE
+  with/without the G selection and correction.
+
 
   # classify the region
-  $0 classify \\
-          [-e ELS_or_PLS_threshold(default: 2)]
+  gunzip -c output.bed.gz \\
+ |  $0 classify \\
+          [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
 
   # count reads per samples
   $0 eachcount \\
@@ -1006,16 +1013,23 @@ cmd_eachcount ()
   ### prep totals
   ###
   find ${tmpdir}/each/ -name '*.fwd.bw' \
-  | xargs -L 1 -I % bash -c \
-     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}'" \
+  | xargs -L 1 -P ${parallel} -I % sh -c \
+     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}' > %.totalFwd.txt " \
+
+  find ${tmpdir}/each/ -name '*.fwd.bw.totalFwd.txt' \
+  | xargs -L 1 -I % cat % \
   | sed 's/.fwd.bw,/\t/'  \
   | sed 's/^.*\///'  \
   | sort -k1,1 \
   > ${tmpdir}/totalsFwd.txt
 
+
   find ${tmpdir}/each/ -name '*.rev.bw' \
-  | xargs -L 1 -I % bash -c \
-     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}'" \
+  | xargs -L 1 -P ${parallel} -I % sh -c \
+     "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}' > %.totalRev.txt " \
+
+  find ${tmpdir}/each/ -name '*.rev.bw.totalRev.txt' \
+  | xargs -L 1 -I % cat % \
   | sed 's/.rev.bw,/\t/'  \
   | sed 's/^.*\///'  \
   | sort -k1,1 \
@@ -1138,7 +1152,28 @@ cmd_eachcount ()
     }' \
   | gzip -c > ${out_prefix}_eachcounts.bed.gz
 
-  mv -f ${tmpdir}/totals.txt ${out_prefix}_eachtotals.txt
+
+  ###
+  ### expression matrix
+  ###
+  printf "00Annotation\t" \
+  > ${out_prefix}_eachcounts.txt
+  cut -f 1 ${tmpdir}/totals.txt | xargs | sed -e 's/ /\t/g' \
+  >> ${out_prefix}_eachcounts.txt
+  gunzip -c ${out_prefix}_eachcounts.bed.gz \
+  | awk '{
+      match( $4, /eachCounts:[0-9,]+/)
+      eachCounts = substr($4, RSTART, RLENGTH)
+      sub("eachCounts:", "", eachCounts)
+      gsub(",", "\t", eachCounts)
+
+      name = $4
+      gsub(/each[a-zA-Z]+:[0-9,.]+\|/, "", name)
+      print name, eachCounts
+    }' \
+  >> ${out_prefix}_eachcounts.txt
+  rm -f ${out_prefix}_eachcounts.txt.gz
+  gzip ${out_prefix}_eachcounts.txt
 }
 
 
@@ -1151,7 +1186,7 @@ cmd_filter ()
   max_counts=-1
   min_counts=4
   max_tpm=-1
-  min_tpm=0.05
+  min_tpm=0
   min_counts_in_each_strand=0
   min_ctssMax=0
   min_ctssMax_in_each_strand=0
@@ -1335,7 +1370,7 @@ cmd_run ()
   prog_compression=gzip
   min_length=5
   min_counts=4
-  min_tpm=0.05
+  min_tpm=0
   els_pls_cutoff=2
 
   while getopts i:c:o:w:l:n:t:p:z:e: opt
