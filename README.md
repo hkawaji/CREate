@@ -1,12 +1,16 @@
-# dtCREs: Divergently Transcribed CREs (cis-regulatory elements)
+# CREate: Cis-Regulatory Elements identification based on Architecture of Transcription initiation Events
 
-Some classes of cis-regulatory elements (in particular, promoters and enhancers) are characterized
-with divergent transcription. This repo contains two scripts to process CAGE data, to identify divergently
-transcribed regions unifromly regardless the level of directionality. 
+Cis-regulatory elements, in particular promoters and enhancers, has a feature
+of being transcribed. The architecture of their transcription is predominantly
+divergent, sometime unidirectional, but not convergent. Based on CAGE (Cap Analysis
+of Gene Expression) profiles, _CREate.sh_ identifies genomic regions with non-convergent
+transcription, as cis-regulatory elements.
 
-* __selectCorrectUnencodedG2ctss.sh__  Count CAGE read 5'ends per CTSS by using only ones with unencoded "G" as possible (in case the 5'-end "G" matches to the genome, it makes an educated guess from the neighboring region), which is added by terminal transferase activity of the reverse transcriptase.
-* __dtCREs.sh__ Identify divergently transcribed regions, not convergent, through scanning genomic bases without TSS clustering nor peak identification.
-
+_selectCorrectUnencodedG2ctss.sh_ produces 5'-end frequencies based on CAGE
+read alignments with a reference genome through enriching 5'-capped ends.
+It takes reads starting with G unencoded in the genome, and reads with G
+matching to the genome in case its neighbrs harbor unencoded G. It use
+is recommended as a pre-processor of _CREate.sh_.
 
 Author
 ------
