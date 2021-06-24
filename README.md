@@ -1,7 +1,9 @@
-# CREate: Cis-Regulatory Elements identification based on Architecture of Transcription initiation Events
+# CREate 
+
+__Identification of Cis-Regulatory Elements based on Architecture of Transcription initiation Events__
 
 Cis-regulatory elements, in particular promoters and enhancers, has a feature
-of being transcribed. The architecture of their transcription is predominantly
+of being transcribed. The architecture of such transcription is predominantly
 divergent, sometime unidirectional, but not convergent. Based on CAGE (Cap Analysis
 of Gene Expression) profiles, _CREate.sh_ identifies genomic regions with non-convergent
 transcription, as cis-regulatory elements.
