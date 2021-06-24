@@ -5,8 +5,8 @@ __Identification of Cis-Regulatory Elements based on Architecture of Transcripti
 Cis-regulatory elements, in particular promoters and enhancers, has a feature
 of being transcribed. The architecture of such transcription is predominantly
 divergent, sometime unidirectional, but not convergent. Based on CAGE (Cap Analysis
-of Gene Expression) profiles, `CREate.sh` identifies genomic regions with non-convergent
-transcription, as cis-regulatory elements.
+of Gene Expression) profiles, `CREate.sh` identifies active genomic regions with
+non-convergent transcription as cis-regulatory elements.
 
 `selectCorrectUnencodedG2ctss.sh` produces 5'-end frequencies based on CAGE
 read alignments with a reference genome through enriching 5'-capped ends.
