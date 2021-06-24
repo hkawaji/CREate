@@ -1156,10 +1156,16 @@ cmd_eachcount ()
   ###
   ### expression matrix
   ###
-  printf "00Annotation\t" \
+  printf "00ANNOTATION\t" \
   > ${out_prefix}_eachcounts.txt
   cut -f 1 ${tmpdir}/totals.txt | xargs | sed -e 's/ /\t/g' \
   >> ${out_prefix}_eachcounts.txt
+
+  printf "01STAT:TOTAL_COUNTS\t" \
+  >> ${out_prefix}_eachcounts.txt
+  cut -f 2 ${tmpdir}/totals.txt | xargs | sed -e 's/ /\t/g' \
+  >> ${out_prefix}_eachcounts.txt
+
   gunzip -c ${out_prefix}_eachcounts.bed.gz \
   | awk '{
       match( $4, /eachCounts:[0-9,]+/)
@@ -1169,7 +1175,7 @@ cmd_eachcount ()
 
       name = $4
       gsub(/each[a-zA-Z]+:[0-9,.]+\|/, "", name)
-      print name, eachCounts
+      print name "\t" eachCounts
     }' \
   >> ${out_prefix}_eachcounts.txt
   rm -f ${out_prefix}_eachcounts.txt.gz
