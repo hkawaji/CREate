@@ -1323,9 +1323,69 @@ cmd_filter ()
     if ( invert_match == "true" ) {
       if ( flagM == "true" ) { flagM = "false" } else { flagM = "true" }
     }
-    #color = sprintf( "%d,0,%d", 127 + 127 * s , 127 - 127 * s )
-    #$9 = color
+    if ( flagM == "true" ) { print }
+  }'
+}
 
+
+
+cmd_maxfilter ()
+{
+  ### handle options
+  max_tpmMax=-1
+  min_tpmMax=0
+  max_countsMax=-1
+  min_countsMax=0
+
+  invert_match="false"
+
+  while getopts t:T:c:C:v: opt
+  do
+    case ${opt} in
+    T) max_tpmMax=${OPTARG};;
+    t) min_tpmMax=${OPTARG};;
+    C) max_countsMax=${OPTARG};;
+    c) min_countsMax=${OPTARG};;
+    v) invert_match="true";;
+    *) usage;;
+    esac
+  done
+
+  printf "### maxfilter\n"  >&2
+
+  awk \
+    --assign max_tpmMax=$max_tpmMax \
+    --assign min_tpmMax=$min_tpmMax \
+    --assign max_countsMax=$max_countsMax \
+    --assign min_countsMax=$min_countsMax \
+    --assign invert_match=$invert_match \
+  'BEGIN{OFS="\t"}{
+
+    flagM = "true"
+
+    if (match( $0, /tpmMax:[-.0-9]+/)) {
+      tpmMax = substr($0, RSTART, RLENGTH)
+      sub("tpmMax:", "", tpmMax)
+      tpmMax += 0;
+    }
+    if (match( $0, /countsMax:[-.0-9]+/)) {
+      countsMax = substr($0, RSTART, RLENGTH)
+      sub("countsMax:", "", countsMax)
+      countsMax += 0;
+    }
+
+    if (    ( max_tpmMax >= 0) &&
+            ( tpmMax > max_tpmMax ) ) { flagM = "false" }
+    else if ( tpmMax < min_tpmMax )   { flagM = "false" }
+
+    else if ( ( max_countsMax >= 0) &&
+              ( countsMax > max_countsMax ) ) { flagM = "false" }
+    else if ( countsMax < min_countsMax )     { flagM = "false" }
+
+    # invert
+    if ( invert_match == "true" ) {
+      if ( flagM == "true" ) { flagM = "false" } else { flagM = "true" }
+    }
     if ( flagM == "true" ) { print }
   }'
 }
@@ -1490,6 +1550,10 @@ case "${1:-}" in
   eachcount)
     shift;
     cmd_eachcount "$@"
+    ;;
+  maxfilter)
+    shift;
+    cmd_maxfilter "$@"
     ;;
   *)
     usage
