@@ -1341,27 +1341,58 @@ cmd_classify ()
    esac
   done
 
-  awk --assign els_pls_cutoff=$els_pls_cutoff 'BEGIN{OFS="\t"}{
+  awk --assign els_pls_cutoff=$els_pls_cutoff 'BEGIN{
+    OFS="\t"
+
+    # -- 11 color bins for PLA and ELA (in R) --
+    #> c2rgb = function(c) paste(col2rgb(c)[,1],collapse=",")
+    #> colorRampPalette(c("red","black","blue"))(11) %>% sapply( c2rgb ) %>% paste(collapse="|")
+    #[1] "255,0,0|204,0,0|153,0,0|101,0,0|50,0,0|0,0,0|0,0,51|0,0,102|0,0,153|0,0,204|0,0,255"
+    #> colorRampPalette(c("lightsalmon","yellow","skyblue"))(11) %>% sapply( c2rgb ) %>% paste(collapse="|")
+    #[1] "255,160,122|255,179,97|255,198,73|255,217,48|255,236,24|255,255,0|230,245,47|207,235,94|182,225,141|159,215,188|135,206,235"
+
+    str = "255,0,0|204,0,0|153,0,0|101,0,0|50,0,0|0,0,0|0,0,51|0,0,102|0,0,153|0,0,204|0,0,255"
+    split(str, colPla, "|")
+    str = "255,160,122|255,179,97|255,198,73|255,217,48|255,236,24|255,255,0|230,245,47|207,235,94|182,225,141|159,215,188|135,206,235"
+    split(str, colEla, "|")
+  }{
+    # obtain TPM
     if (match( $0, /tpm:[-.0-9]+/)) {
       tpm = substr($0, RSTART, RLENGTH)
       sub("tpm:", "", tpm)
       tpm += 0;
     }
 
-    if (tpm >= els_pls_cutoff ) { $4 = $4 "|class:PLA" }
-    else {
+    # obtain directionality from color code
+    match( $9, /^[0-9]+,/)
+    r = substr($9, RSTART, RLENGTH - 1)
+    match( $9, /,[0-9]+$/)
+    b = substr($9, RSTART + 1, RLENGTH-1)
+    rb = ( r - b ) / ( r + b )
+    bin = 6 - sprintf("%d", rb * 5 )
+
+    if (tpm >= els_pls_cutoff ) {
+      $4 = $4 "|class:PLA"
+      $9 = colPla[bin]
+    } else {
       $4 = $4 "|class:ELA"
+      $9 = colEla[bin]
+    }
+
+    #if (tpm >= els_pls_cutoff ) { $4 = $4 "|class:PLA" }
+    #else {
+    #  $4 = $4 "|class:ELA"
 
       # adjust color for enhancer level activities
-      match( $9, /^[0-9]+,/)
-      r = substr($9, RSTART, RLENGTH - 1)
-      match( $9, /,[0-9]+$/)
-      b = substr($9, RSTART + 1, RLENGTH-1)
-      rb = ( r - b ) / ( r + b )
-      if (rb < 0) {rb = -1 * rb}
-      gstr = sprintf(",%d,", (255 - (128 * rb)))
-      sub( ",0," , gstr , $9 )
-    }
+    #  match( $9, /^[0-9]+,/)
+    #  r = substr($9, RSTART, RLENGTH - 1)
+    #  match( $9, /,[0-9]+$/)
+    #  b = substr($9, RSTART + 1, RLENGTH-1)
+    #  rb = ( r - b ) / ( r + b )
+    #  if (rb < 0) {rb = -1 * rb}
+    #  gstr = sprintf(",%d,", (255 - (128 * rb)))
+    #  sub( ",0," , gstr , $9 )
+    #}
     print
   }'
 }
