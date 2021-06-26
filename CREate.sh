@@ -793,6 +793,8 @@ cmd_total ()
   if [ ! -n "${chrom_sizes-}" ]; then usage; fi
   if [ ! -n "${out_prefix-}" ]; then usage; fi
 
+  printf "### total\n"  >&2
+
   ### setup for later
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
@@ -888,6 +890,8 @@ cmd_call ()
   if [ ! -n "${infile-}" ]; then usage; fi
   if [ ! -n "${chrom_sizes-}" ]; then usage; fi
 
+  printf "### call\n"  >&2
+
   ### setup for later
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
@@ -905,12 +909,10 @@ cmd_call ()
     PROG_COMP="$PROG_COMP -T${parallel} "
   fi
 
-
-  printf "### prepare target positions\n" >&2 
+  printf "### call: prepare target positions\n" >&2 
   prep_input $infile $window_double_size
 
-
-  printf "### compute neighbouring signals\n" >&2
+  printf "### call: compute neighbouring signals\n" >&2
   accumulate_neiboring_signals \
     ${tmpdir}/potential_center.bg.COMP \
     ${tmpdir}/infile.fwd.bw \
@@ -919,15 +921,14 @@ cmd_call ()
   | $PROG_COMP \
   > ${tmpdir}/potential_center.txt.COMP
 
-
-  printf "### select bidirectional regions\n" >&2
+  printf "### call: select divergent regions\n" >&2
   cat ${tmpdir}/potential_center.txt.COMP \
   | $PROG_DECOMP \
   | classify_convergent_divergent \
       ${tmpdir}/potential_center_conv.bed \
       ${tmpdir}/potential_center_divergent.bed
 
-  printf "### find cores with left/right boundaries\n"  >&2
+  printf "### call: find cores with left/right boundaries\n"  >&2
   find_max_scores \
     ${tmpdir}/potential_center_divergent.bed \
     ${tmpdir}/infile.density.fwd.bg \
@@ -935,11 +936,11 @@ cmd_call ()
     $window_size \
   > ${tmpdir}/potential_center_divergent_with_core.bed
 
-  printf "### tighten\n"  >&2
+  printf "### call: tighten\n"  >&2
   tighten_unidirectional ${tmpdir}/potential_center_divergent_with_core.bed \
   > ${tmpdir}/potential_center_divergent_with_core_tight.bed
 
-  printf "### counts_fr\n"  >&2
+  printf "### call: counts_fr\n"  >&2
   total=$( gunzip -c ${infile} | awk '{sum += $5 * ($3-$2)}END{print sum}' )
   counts_fr ${tmpdir}/potential_center_divergent_with_core_tight.bed ${infileMax} \
   | awk --assign total=$total 'BEGIN{OFS="\t"}{
@@ -975,6 +976,7 @@ cmd_eachcount ()
   if [ ! -n "${infile-}" ]; then usage; fi
   if [ ! -n "${infileEach-}" ]; then usage; fi
   if [ ! -n "${out_prefix-}" ]; then usage; fi
+  printf "### eachcount\n"  >&2
 
   ### setup for later
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
@@ -1219,6 +1221,8 @@ cmd_filter ()
     esac
   done
 
+  printf "### filter\n"  >&2
+
 
   awk \
     --assign max_directionality=$max_directionality \
@@ -1341,6 +1345,8 @@ cmd_classify ()
    esac
   done
 
+  printf "### classify\n"  >&2
+
   awk --assign els_pls_cutoff=$els_pls_cutoff 'BEGIN{
     OFS="\t"
 
@@ -1350,7 +1356,6 @@ cmd_classify ()
     #[1] "255,0,0|204,0,0|153,0,0|101,0,0|50,0,0|0,0,0|0,0,51|0,0,102|0,0,153|0,0,204|0,0,255"
     #> colorRampPalette(c("lightsalmon","yellow","skyblue"))(11) %>% sapply( c2rgb ) %>% paste(collapse="|")
     #[1] "255,160,122|255,179,97|255,198,73|255,217,48|255,236,24|255,255,0|230,245,47|207,235,94|182,225,141|159,215,188|135,206,235"
-
     str = "255,0,0|204,0,0|153,0,0|101,0,0|50,0,0|0,0,0|0,0,51|0,0,102|0,0,153|0,0,204|0,0,255"
     split(str, colPla, "|")
     str = "255,160,122|255,179,97|255,198,73|255,217,48|255,236,24|255,255,0|230,245,47|207,235,94|182,225,141|159,215,188|135,206,235"
@@ -1378,21 +1383,6 @@ cmd_classify ()
       $4 = $4 "|class:ELA"
       $9 = colEla[bin]
     }
-
-    #if (tpm >= els_pls_cutoff ) { $4 = $4 "|class:PLA" }
-    #else {
-    #  $4 = $4 "|class:ELA"
-
-      # adjust color for enhancer level activities
-    #  match( $9, /^[0-9]+,/)
-    #  r = substr($9, RSTART, RLENGTH - 1)
-    #  match( $9, /,[0-9]+$/)
-    #  b = substr($9, RSTART + 1, RLENGTH-1)
-    #  rb = ( r - b ) / ( r + b )
-    #  if (rb < 0) {rb = -1 * rb}
-    #  gstr = sprintf(",%d,", (255 - (128 * rb)))
-    #  sub( ",0," , gstr , $9 )
-    #}
     print
   }'
 }
@@ -1464,12 +1454,11 @@ EOF
   | $0 classify -e ${els_pls_cutoff} \
   | gzip -c > ${out_prefix}_region_filtered.bed.gz
 
-
-  #$0 eachcount \
-  #  -i ${out_prefix}_region.bed.gz \
-  #  -e ${out_prefix}_each.ctss.bw.tar \
-  #  -o ${out_prefix}_region \
-  #  -p ${parallel}
+  $0 eachcount \
+    -i ${out_prefix}_region_filtered.bed.gz \
+    -o ${out_prefix}_region_filtered \
+    -e ${out_prefix}_each.ctss.bw.tar \
+    -p ${parallel}
 }
 
 
