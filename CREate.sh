@@ -206,6 +206,19 @@ ctssbed_to_bg ()
 }
 
 
+ctssGzBed_to_TpmBg ()
+{
+  local infile=$1
+  local strand=$2
+
+  total=$( gunzip -c $infile | awk '{total += $5 * ($3 - $2)}END{print total}' )
+  gunzip -c $infile \
+  | ctssbed_to_bg $strand \
+  | awk --assign total=$total \
+      '{$4 = $4 * 1e6 / total ; printf "%s\t%d\t%d\t%.2f\n", $1, $2, $3, $4}'
+}
+
+
 
 bg_to_bed4 ()
 {
@@ -810,11 +823,23 @@ cmd_total ()
     "gunzip -c {} | ctssbed_to_bg + > ${tmpdir}/each/\$(basename {}).fwd.bg"
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
     "gunzip -c {} | ctssbed_to_bg - > ${tmpdir}/each/\$(basename {}).rev.bg"
+
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/each/\$(basename {}).fwd.bg $chrom_sizes ${tmpdir}/each/\$(basename {}).fwd.bw"
   cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/each/\$(basename {}).rev.bg $chrom_sizes ${tmpdir}/each/\$(basename {}).rev.bw"
- 
+
+  export -f ctssGzBed_to_TpmBg
+  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+    "ctssGzBed_to_TpmBg {} + > ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bg"
+  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+    "ctssGzBed_to_TpmBg {} - > ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bg"
+
+  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+    "bedGraphToBigWig ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bg $chrom_sizes ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bw"
+  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+    "bedGraphToBigWig ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bg $chrom_sizes ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bw"
+
   find  ${tmpdir}/each -name '*.fwd.bw' -type f -print > ${tmpdir}/merge/infileF.list
   find  ${tmpdir}/each -name '*.rev.bw' -type f -print > ${tmpdir}/merge/infileR.list
 
@@ -862,7 +887,9 @@ cmd_total ()
     done
   done
 
-  (cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
+  #(cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
+  (cd ${tmpdir}/each/;  ls *.bw | sort | xargs -L 1 -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctss.bw.tar
+  (cd ${tmpdir}/TpmEach/;  ls *.bw | sort | xargs -L 1 -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctssTpm.bw.tar
 }
 
 
@@ -1514,11 +1541,11 @@ EOF
   | $0 classify -e ${els_pls_cutoff} \
   | gzip -c > ${out_prefix}_region_filtered.bed.gz
 
-  $0 eachcount \
-    -i ${out_prefix}_region_filtered.bed.gz \
-    -o ${out_prefix}_region_filtered \
-    -e ${out_prefix}_each.ctss.bw.tar \
-    -p ${parallel}
+  #$0 eachcount \
+  #  -i ${out_prefix}_region_filtered.bed.gz \
+  #  -o ${out_prefix}_region_filtered \
+  #  -e ${out_prefix}_each.ctss.bw.tar \
+  #  -p ${parallel}
 }
 
 
