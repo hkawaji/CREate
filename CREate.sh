@@ -41,10 +41,6 @@ usage: $0 <command> <args>
   * out_prefix_region_filtered.bed.gz
 
 
-  For counting reads in each profile, the sub command 
-  ($0 eachcount) is required.
-
-
   #---------------------------------
   # run individual processes each by each
   #---------------------------------
@@ -812,6 +808,7 @@ cmd_total ()
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
   mkdir -p ${tmpdir}/each
+  mkdir -p ${tmpdir}/TpmEach
   mkdir -p ${tmpdir}/merge
   SORT_OPT_BASE="--batch-size=100"
   export SORT_OPT_BED="${SORT_OPT_BASE} -k1,1 -k2,2n -k3,3n"
@@ -1114,14 +1111,12 @@ cmd_eachcount ()
   ### merge fwd & rev
   ###
   cat ${tmpdir}/count.fwd.txt \
-  | awk '{buf="eachCountsFwd:";for(i=2;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
-  | sed 's/Fwd:,/Fwd:/' \
+  | awk '{buf=$2;for(i=3;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
   > ${tmpdir}/count.fwd.txt.tmp
   mv -f ${tmpdir}/count.fwd.txt.tmp ${tmpdir}/count.fwd.txt
 
   cat ${tmpdir}/count.rev.txt \
-  | awk '{buf="eachCountsRev:";for(i=2;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
-  | sed 's/Rev:,/Rev:/' \
+  | awk '{buf=$2;for(i=3;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
   > ${tmpdir}/count.rev.txt.tmp
   mv -f ${tmpdir}/count.rev.txt.tmp ${tmpdir}/count.rev.txt
 
@@ -1129,86 +1124,35 @@ cmd_eachcount ()
     ${tmpdir}/count.fwd.txt \
     ${tmpdir}/count.rev.txt \
   | sort -k1,1 \
+  | awk 'BEGIN{OFS="\t"}{
+      fwdN=split($2,eachCountsFwd,",");
+      revN=split($3,eachCountsRev,",");
+      i = 1
+      eachCounts = eachCountsFwd[i] + eachCountsRev[i]
+      for (i=2; i<=fwdN; i++) {
+        eachCounts = eachCounts","(eachCountsFwd[i] + eachCountsRev[i])
+      }
+      print $1, eachCounts, $2, $3
+    }' \
   > ${tmpdir}/count.fwdrev.txt
 
-  eachTotals=$( cut -f 2 ${tmpdir}/totals.txt | xargs | sed -e 's/ /,/g' )
+
+
+  cut -f 1 ${tmpdir}/totals.txt \
+  | xargs \
+  | sed -e 's/ /,/g' \
+  | awk '{
+      printf("#chrom\tchromStart\tchromEnd\tname\tscore\tstrand\tthickStart\tthickEnd\titemRgb\tcounts[%s]\tfwdCounts[.]\trevCounts[.]\n" , $0 )
+    }' \
+  > ${tmpdir}/out_eachcounts.bed9pls3
+
   cat ${tmpdir}/count.fwdrev.txt \
-  | awk --assign eachTotals=$eachTotals 'BEGIN{OFS="\t"}{
-    split($2,keyValue,":");fwdN=split(keyValue[2],eachCountsFwd,",");
-    split($3,keyValue,":");revN=split(keyValue[2],eachCountsRev,",");
-    buf="eachCounts:"
-    bufD="eachDirectionalities:"
-    for (i=1; i<=fwdN; i++) {
-      tmpTotal = eachCountsFwd[i] + eachCountsRev[i]
-      tmpDir = "NA"
-      if (tmpTotal > 0) {
-        tmpDir = (eachCountsFwd[i] - eachCountsRev[i]) / tmpTotal
-        if (tmpDir < 0) {tmpDir = tmpDir * -1}
-      }
-      buf = buf","tmpTotal
-      bufD = bufD","tmpDir
-    }
-    print $1,$2,$3,buf,bufD,"eachTotals:"eachTotals
-  }' \
-  | sed -e 's/eachCounts:,/eachCounts:/'  \
-  | sed -e 's/eachDirectionalities:,/eachDirectionalities:/'  \
   | join -t "	" ${tmpdir}/LN_infile.txt  - \
   | cut -f 2- \
-  | awk 'BEGIN{OFS="\t"}{$4=$4"|"$10"|"$11"|"$12"|"$13"|"$14;print}' \
-  | cut -f 1-9 \
-  | awk 'BEGIN{OFS="\t"}{
-      if (match( $4, /eachCounts:[-.0-9,]+/)) {
-        ec_str = substr($4, RSTART, RLENGTH)
-        sub("eachCounts:", "", ec_str)
-        ec_n = split(ec_str,ec,",")
-      }
-      if (match( $4, /eachTotals:[-.0-9,]+/)) {
-        et_str = substr($4, RSTART, RLENGTH)
-        sub("eachTotals:", "", et_str)
-        et_n = split(et_str,et,",")
-      }
+  >> ${tmpdir}/out_eachcounts.bed9pls3
 
-      countsMax = 0
-      tpmMax = 0
-      for (i=1;i<=ec_n;i++)
-      {
-        tpm = 1e6 * (ec[i]+0)/(et[i]+0)
-        if ( tpm > tpmMax){tpmMax = tpm}
-        if ( ec[i] > countsMax){countsMax = ec[i]}
-      }
-      $4 = $4"|countsMax:"countsMax"|tpmMax:"tpmMax
-      print
-    }' \
-  | gzip -c > ${out_prefix}_eachcounts.bed.gz
-
-
-  ###
-  ### expression matrix
-  ###
-  printf "00ANNOTATION\t" \
-  > ${out_prefix}_eachcounts.txt
-  cut -f 1 ${tmpdir}/totals.txt | xargs | sed -e 's/ /\t/g' \
-  >> ${out_prefix}_eachcounts.txt
-
-  printf "01STAT:TOTAL_COUNTS\t" \
-  >> ${out_prefix}_eachcounts.txt
-  cut -f 2 ${tmpdir}/totals.txt | xargs | sed -e 's/ /\t/g' \
-  >> ${out_prefix}_eachcounts.txt
-
-  gunzip -c ${out_prefix}_eachcounts.bed.gz \
-  | awk '{
-      match( $4, /eachCounts:[0-9,]+/)
-      eachCounts = substr($4, RSTART, RLENGTH)
-      sub("eachCounts:", "", eachCounts)
-      gsub(",", "\t", eachCounts)
-
-      name = $4
-      gsub(/each[a-zA-Z]+:[0-9,.]+\|/, "", name)
-      print name "\t" eachCounts
-    }' \
-  >> ${out_prefix}_eachcounts.txt
-  rm -f ${out_prefix}_eachcounts.txt.gz
-  gzip ${out_prefix}_eachcounts.txt
+  gzip -c ${tmpdir}/out_eachcounts.bed9pls3 > ${out_prefix}_eachcounts.bed9pls3.gz
+  cp -f ${tmpdir}/totals.txt ${out_prefix}_eachcounts_totals.txt
 }
 
 
@@ -1541,11 +1485,11 @@ EOF
   | $0 classify -e ${els_pls_cutoff} \
   | gzip -c > ${out_prefix}_region_filtered.bed.gz
 
-  #$0 eachcount \
-  #  -i ${out_prefix}_region_filtered.bed.gz \
-  #  -o ${out_prefix}_region_filtered \
-  #  -e ${out_prefix}_each.ctss.bw.tar \
-  #  -p ${parallel}
+  $0 eachcount \
+    -i ${out_prefix}_region_filtered.bed.gz \
+    -o ${out_prefix}_region_filtered \
+    -e ${out_prefix}_each.ctss.bw.tar \
+    -p ${parallel}
 }
 
 
