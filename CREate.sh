@@ -1115,10 +1115,12 @@ cmd_eachcount ()
   > ${tmpdir}/count.fwd.txt.tmp
   mv -f ${tmpdir}/count.fwd.txt.tmp ${tmpdir}/count.fwd.txt
 
+
   cat ${tmpdir}/count.rev.txt \
   | awk '{buf=$2;for(i=3;i <=NF; i++){buf=buf","$i};print $1"\t"buf}' \
   > ${tmpdir}/count.rev.txt.tmp
   mv -f ${tmpdir}/count.rev.txt.tmp ${tmpdir}/count.rev.txt
+
 
   join -t "	" \
     ${tmpdir}/count.fwd.txt \
@@ -1137,19 +1139,21 @@ cmd_eachcount ()
   > ${tmpdir}/count.fwdrev.txt
 
 
-
   cut -f 1 ${tmpdir}/totals.txt \
-  | xargs \
-  | sed -e 's/ /,/g' \
+  | xargs -L 1 echo -n " " \
+  | sed -e 's/ \+/,/g' \
+  | sed -e 's/^,//' \
   | awk '{
       printf("#chrom\tchromStart\tchromEnd\tname\tscore\tstrand\tthickStart\tthickEnd\titemRgb\tcounts[%s]\tfwdCounts[.]\trevCounts[.]\n" , $0 )
     }' \
   > ${tmpdir}/out_eachcounts.bed9pls3
 
+
   cat ${tmpdir}/count.fwdrev.txt \
   | join -t "	" ${tmpdir}/LN_infile.txt  - \
   | cut -f 2- \
   >> ${tmpdir}/out_eachcounts.bed9pls3
+
 
   gzip -c ${tmpdir}/out_eachcounts.bed9pls3 > ${out_prefix}_eachcounts.bed9pls3.gz
   cp -f ${tmpdir}/totals.txt ${out_prefix}_eachcounts_totals.txt
