@@ -1404,10 +1404,17 @@ cmd_classify ()
     }
 
     # obtain directionality from color code
-    match( $9, /^[0-9]+,/)
-    r = substr($9, RSTART, RLENGTH - 1)
-    match( $9, /,[0-9]+$/)
-    b = substr($9, RSTART + 1, RLENGTH-1)
+    #match( $9, /^[0-9]+,/)
+    #r = substr($9, RSTART, RLENGTH - 1)
+    #match( $9, /,[0-9]+$/)
+    #b = substr($9, RSTART + 1, RLENGTH-1)
+
+    # obtain directionality
+    match( $4, /countsFwd:[0-9]+/)
+    r = substr($4, RSTART + 10, RLENGTH - 10)
+    match( $4, /countsRev:[0-9]+/)
+    b = substr($4, RSTART + 10, RLENGTH - 10)
+
     rb = ( r - b ) / ( r + b )
     bin = 6 - sprintf("%d", rb * 5 )
 
