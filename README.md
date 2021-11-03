@@ -13,9 +13,11 @@ of 5'-end frequencies (CTSS bed file) from CAGE read alignments with a
 reference genome. Genuine transcription start site (TSS) is further enriched
 by selecting reads with "G" at their 5'-ends that are not derived from the genome. 
 Such "unencoded G" can be identified from their alignments in case that immediate
-upstream of TSS is not G, and can be estimated from their neighbors otherwise.
-The frequency of starting sites are adjusted when such unencoded G matched to the
-upstream of TSSs. Its use is recommended in a pre-processing of `CREate.sh`.
+upstream of TSS is not G. In case that its immediate upstream is G, "unencoded G"
+is estimated from their neighbors, and the frequency of starting sites are adjusted
+if possible. Note that it is not applicable to CAGE data for HeliScope sequencing.
+It is tested with [STAR](https://github.com/alexdobin/STAR) alignments of CAGE for
+Illumina seuqneicng, and its use is highly recommended as a pre-processing of `CREate.sh`.
 
 Author
 ------
