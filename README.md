@@ -2,7 +2,7 @@
 
 __Cis-Regulatory Element indentification based on Architecture of Transcription initiation Events__
 
-Cis-regulatory elements, in particular promoters and enhancers, has a feature
+Cis-regulatory elements, in particular promoters and enhancers, have a feature
 of being transcribed. The architecture of transcription in these regions are
 predominantly divergent, often unidirectional, but not convergent. Based on
 transcription initiation profiles (such as CAGE), `CREate.sh` identifies active
