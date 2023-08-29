@@ -1410,9 +1410,9 @@ cmd_classify ()
     #b = substr($9, RSTART + 1, RLENGTH-1)
 
     # obtain directionality
-    match( $4, /countsFwd:[0-9]+/)
+    match( $4, /countsFwd:[0-9.eE+]+/)
     r = substr($4, RSTART + 10, RLENGTH - 10)
-    match( $4, /countsRev:[0-9]+/)
+    match( $4, /countsRev:[0-9.eE+]+/)
     b = substr($4, RSTART + 10, RLENGTH - 10)
 
     rb = ( r - b ) / ( r + b )
