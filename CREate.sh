@@ -116,7 +116,7 @@ Call divergently transcribed regions as candidates of cis-regulatory elements
 The output file is formated in BED9, where the thickStart/thickEnd specify 'core' region which is
 predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
 The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
-column indicates activity of CREs based on TPM (transcripts per million).
+column indicates CRE activity based on TPM (transcripts per million).
 
 The output file is formated in BED9, where the thickStart/thickEnd fields define the 'core' region, 
 predominantly divergent ('#'), and the start/end fields specify the broader region where signals
