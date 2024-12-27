@@ -11,13 +11,60 @@ usage()
 {
   cat <<EOF
 
-usage: $0 <command> <args>
+usage: $0 <subcommand> <args>
 
-  #--------------------------------------------------------------
-  # run a series of processes (total, call, and filter) at once
-  #--------------------------------------------------------------
+
+Subcommands
+===========
+
+* bam2ctss : Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
+* run      : Run the peak call steps (total, call, filter, classify, eachcount) at once
+* total    : Generate total CTSS count file based on multiple CTSS BED files
+* call     : Call divergently transcribed regions as candidates of cis-regulatory elements 
+* filter   : Filter the regions
+* classify : Classify the regions to PLE (promoter level expression) or ELE (enhancer level expression)
+* eachcount: Count reads belonging to the the divergently transcribed regions per sample
+
+
+
+Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
+-----------------------------------------------------------------------------
+
+  $0 bam2ctss -i infile.star.bam -g genome.fa \\
+    [-q mapQ (default:20)] \\
+    [-p parallel (default:8)] \\
+    [-w filter_window (default:20)] \\
+    [-b filter_target_base (default:G; otheriwse N)] \\
+    [-r ratio_Gaddition (default:0.89)] \\
+    [-f full_set_of_intermediate_files (default: null)] \\
+
+This program accurately counts the 5'-ends of CAGE (Cap Analysis of Gene Expression) 
+reads at single-nucleotide resolution. It focuses on reads containing unencoded “G” 
+which indicate capped 5'-ends of RNAs with higher confidence, as described in a similar
+approach by Oguchi et al. (Science, 2024, 385(6704):eadd8394).
+
+However, distinguishing whether a read has an unencoded “G” can be challenging when the
+genomic DNA upstream (1 bp before the genuine TSS) also contains a “G”. To address this, 
+the program examines surrounding regions (windows) to determine whether such reads should
+be retained or discarded.
+
+For genuine TSSs originating from “G-stretch” regions, accurately identifying the exact
+start site can be complicated. This ambiguity arises because the “G” at the 5'-end may
+correspond to an encoded or unencoded “G”. To handle this issue, the program applies 
+a correction by subtracting certain reads based on an assumed G-addition ratio and 
+adjusts TSS locations accordingly.
+
+Note that the input file must be a BAM file generated using STAR (https://github.com/alexdobin/STAR) 
+with the "--alignEndsType local" option. This alignment mode ensures that mismatched ends, 
+particularly 5'-ends, are treated as soft clips through local alignment.
+
+
+
+Run the peak call steps (total, call, filter, classify, eachcount) at once
+--------------------------------------------------------------------------
+
   $0 run  \\
-    -i infilesList \\
+    -i infiles(comma separated) \\
     -c chrom_sizes \\
     -o out_prefix \\
     [-w window_size(default:200)] \\
@@ -28,37 +75,36 @@ usage: $0 <command> <args>
     [-p parallel(default:20)] \\
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
-  Note that each of the input files should be
-  BED-formatted CTSS profiles with gzip (*.ctss.bed.gz),
-  and the file 'infilesList' should have their paths.
+Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
 
-  The resulting files are:
+The resulting files are:
 
-  * out_prefix_params.txt
-  * out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
-  * out_prefix_each.ctss.bw.tar
-  * out_prefix_region.bed.gz
-  * out_prefix_region_filtered.bed.gz
+* out_prefix_params.txt
+* out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
+* out_prefix_each.ctss.bw.tar
+* out_prefix_region.bed.gz
+* out_prefix_region_filtered.bed.gz
 
 
-  #---------------------------------
-  # run individual processes each by each
-  #---------------------------------
+Generate total CTSS count file based on multiple CTSS BED files
+---------------------------------------------------------------
 
-  # produce total and max CTSS counts by merging CTSS profiles
   $0 total \\
-          -i infileList \\
+          -i infiles(comma separated) \\
           -c chrom_sizes \\
           -o out_prefix \\
           [-p parallel(default:20)]
 
-    which produces the following files:
-      * PREFIX_total.ctss.{bed.gz|fwd.bw|rev.bw}
-      * PREFIX_max.ctss.{bed.gz|fwd.bw|rev.bw}
+which produces the following files:
+
+* PREFIX_total.ctss.{bed.gz|fwd.bw|rev.bw}
+* PREFIX_max.ctss.{bed.gz|fwd.bw|rev.bw}
 
 
-  # call (identify) divergent regions
-  $0 call \\
+Call divergently transcribed regions as candidates of cis-regulatory elements 
+------------------------------------------------------------------------------
+
+   $0 call \\
           -i infile.ctss.bed.gz \\
           -c chrom_sizes \\
           [-w window_size(default:200)] \\
@@ -68,7 +114,26 @@ usage: $0 <command> <args>
   | gzip -c > output.bed.gz
 
 
-  # filter the divergently transcribed regions
+The output file is formated in BED9, where the thickStart/thickEnd specify 'core' region which is
+predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
+The 'core' regions do not overlap each other, while the signal considered region may.
+
+The output file is formated in BED9, where the thickStart/thickEnd fields define the 'core' region, 
+predominantly divergent ('#'), and the start/end fields specify the broader region where signals
+are considered ('+'). 
+
+        ffffffffffff
+   +++++########++++
+   rrrrrrrrrrrrr
+
+Forward signals are indicated in 'f' and reverse signals in 'r'. The 'core' regions are
+non-overlapping, whereas the signal-considered regions may overlap.
+
+
+
+Filter the regions
+------------------
+
   gunzip -c output.bed.gz \\
   | $0 filter \\
           [-D max_directionality(default:1)] \\
@@ -84,54 +149,49 @@ usage: $0 <command> <args>
           [-l min_length(default:5)] \\
           [-v] (for invert match, such as "grep -v")
 
-  The conditions of min_length ( -l 5  ) and min_counts ( -c 4)
-  are required to be retained. Additionally, expression (-t TPM)
-  is recommended, where 0.05 and 0.5 are reasonable for CAGE
-  with/without the G selection and correction.
+Filtering based on expression (-t TPM) is recommended, 
+where 0.05 and 0.5 are reasonable for CAGE.
 
 
-  # classify the region
+Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
+---------------------------------------------------------------------------------------
+
   gunzip -c output.bed.gz \\
- |  $0 classify \\
-          [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
+  | $0 classify \\
+         [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
 
-  # count reads per samples
+
+
+Count reads belonging to the the divergently transcribed regions per sample
+---------------------------------------------------------------------------
+
   $0 eachcount \\
           -i divergently_transcribed_region.bed.gz  (BED9 format) \\
           -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
           -o out_prefix \\
           [-p parallel(default:20)]
 
-(version. 2021.6.21)
 
 
-Overview
---------
-This software is developed to identify cis-regulatory elements
-based on transcription initiation activities monitored by CAGE
-(Cap analysis of gene expression). Promoters are known to have
-PROMPTs (promoter upstream transcripts) in antisense transcription,
-and enhancers are known to be transcribed bidirectionally. Notably
-the nature of divergent transcription is shared, while uni-directional
-transcription often happen not only in promoters but also in enhancers.
-This identify cis- regulatory elements through finding regions
-transcribed both divergently and uni-directionally. 
+Method overview
+================
 
-This software is developed to identify cis-regulatory elements
-based on transcription initiation activities monitored by CAGE
-(Cap analysis of gene expression). Promoters are known to have
-PROMPTs (promoter upstream transcripts) in antisense transcription,
-and enhancers are known to be transcribed bidirectionally. Notably
-the nature of divergent transcription is shared, while uni-directional
-transcription often happen not only in promoters but also in enhancers.
-Genomic regions transcribed both divergently and uni-directionally are
-determined as candidates of cis-regulatory elements. 
+This software is designed to identify cis-regulatory elements by analyzing transcription
+initiation activities measured by CAGE (Cap Analysis of Gene Expression). Promoters are
+charknown to have upstream antisense RNA (uaRNA), while enhancers are typically transcribed
+bidirectionally. Divergent transcription is a shared feature of both promoters and enhancers,
+although unidirectional transcription can also occur in both types of elements. Genomic
+regions exhibiting divergently transcription are identified as potential cis-regulatory elements.
 
-Given a genomic position ([N] below) and transcription initiation profiles
-in sense and antisense, 'convergency' is defined as below, 
 
-  convergency = ( left_fwd + right_rev ) / ( left_rev + right_fwd )
+Given a genomic position ([N] below) and transcription initiation profiles in sense and antisense, 
+the position N is cosidered as divergent if the following formulat is true:
 
+Given a genomic position ([N] below) and the transcription initiation profiles in sense and antisense
+orientations, position N is considered as divergent if the following formula holds true:
+
+  [ left_rev + right_fwd ] > [ left_fwd + right_rev ] 
+  
 where
 
                  left        right
@@ -140,35 +200,16 @@ where
            -------------[N]----------------
   reverse    (left_rev)     (right_rev)
 
-It has to be noted that convergency can also be defined in uni-directional
-cases, but not in case of (left_rev + right_fwd ) is zero. This tool
-explore genomic regions with convergency less than 1, and neighborig
-non-convergent positions are concatenated to be a 'core' described below.
-
-
-Output
--------
-BED9 format, where the thickStart/thickEnd specify 'core' region which is
-predominantly divergent('#'). The start/end positions indicate the covered
-region where the signals are aggregated('+').
-
-        ffffffffffff
-   +++++########++++
-   rrrrrrrrrrrrr
-
-forward signals in 'f' and reverse signals in 'r' are accumulated for counts of 
-foward (F) and  reverse (R). The directionality is computed as (F - R)/(F + R).
-
-Note that divergent 'core' regions do not overlap each other, while the covered
-regions may overlap.
-
 
 
 Requirements
 -------------
-* bedtools (https://github.com/arq5x/bedtools2)
-* jksrc (http://hgdownload.cse.ucsc.edu/admin/)
-
+* samtools (https://github.com/samtools/samtools , tested in version 1.9)
+* bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425) 
+* R (https://www.r-project.org/ , tested in v4.0.2)
+* tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
+* (STAR, to generate the input alignment)  
 
 
 Author
@@ -184,6 +225,331 @@ EOF
 #-------------------------------------
 # functions
 #-------------------------------------
+
+
+### Bam to CTSS with unencoded G selection (REAP+) and G correction
+function splitBam2UnmatchMatchOthers()
+{
+  # init
+  samtools view -H ${infile} > ${tmpdir}/fwd_unmatchG.sam
+  samtools view -H ${infile} > ${tmpdir}/fwd_matchG.sam
+  samtools view -H ${infile} > ${tmpdir}/fwd_matchH.sam
+  samtools view -H ${infile} > ${tmpdir}/fwd_others.sam
+  samtools view -H ${infile} > ${tmpdir}/rev_unmatchG.sam
+  samtools view -H ${infile} > ${tmpdir}/rev_matchG.sam
+  samtools view -H ${infile} > ${tmpdir}/rev_matchH.sam
+  samtools view -H ${infile} > ${tmpdir}/rev_others.sam
+  samtools view -H ${infile} \
+  | awk '{match($0, /SN:([a-zA-Z0-9_]+)\s+LN:([0-9]+)/, buf); if(RLENGTH>=0){print buf[1]"\t"buf[2]}}' \
+  > ${tmpdir}/chrom_sizes
+
+  # fwd
+  samtools view -F 16 -q ${mapQ} ${infile} \
+  | awk \
+      --assign fileU=${tmpdir}/fwd_unmatchG.sam \
+      --assign fileM=${tmpdir}/fwd_matchG.sam  \
+      --assign fileH=${tmpdir}/fwd_matchH.sam  \
+      --assign fileO=${tmpdir}/fwd_others.sam  \
+    '{
+      unmatchN = "";matchN = "";
+      match($6,/^([0-9]+)S/,buf)
+
+      if (RLENGTH>=0){ unmatchN = substr($10,0,buf[1]) }
+      else{ matchN = substr($10,0,1) }
+
+      if (unmatchN == "G") { print $0 >> fileU }
+      else if (matchN == "G") { print $0 >> fileM }
+      else if (matchN != "") { print $0 >> fileH }
+      else { print $0 >> fileO }
+    }'
+
+  # rev
+  samtools view -f 16 -q ${mapQ} ${infile} \
+  | awk \
+      --assign fileU=${tmpdir}/rev_unmatchG.sam \
+      --assign fileM=${tmpdir}/rev_matchG.sam  \
+      --assign fileH=${tmpdir}/rev_matchH.sam  \
+      --assign fileO=${tmpdir}/rev_others.sam  \
+    '{
+      unmatchN = "";matchN = "";
+      match($6,/([0-9]+)S$/,buf)
+
+      if (RLENGTH>=0){unmatchN = substr($10, length($10) - buf[1] + 1) }
+      else { matchN = substr($10,length($10) ) }
+
+      if (unmatchN == "C") {print $0 >> fileU }
+      else if (matchN == "C") {print $0 >> fileM }
+      else if (matchN != "")  {print $0 >> fileH }
+      else {print $0 >> fileO }
+    }'
+
+  # post processing
+  for X in \
+    ${tmpdir}/fwd_unmatchG.sam \
+    ${tmpdir}/fwd_matchG.sam  \
+    ${tmpdir}/fwd_matchH.sam  \
+    ${tmpdir}/fwd_others.sam \
+    ${tmpdir}/rev_unmatchG.sam \
+    ${tmpdir}/rev_matchG.sam  \
+    ${tmpdir}/rev_matchH.sam  \
+    ${tmpdir}/rev_others.sam
+  do
+    cat $X \
+    | bamToBed \
+    | sort -k1,1 -k2,2n --parallel=$parallel \
+    | genomeCoverageBed -5 -bg -i - -g ${tmpdir}/chrom_sizes \
+    > ${X}.bg
+
+    bedGraphToBigWig ${X}.bg ${tmpdir}/chrom_sizes ${X}.bw
+  done
+}
+
+
+function correctG_fwd()
+{
+  # input: chrom=$1;start=$2;end=$3;U=$4;M=$5;vU=$6;vM=$7;vH=$8;nuc=$9;
+  grep -v ^# \
+  | awk --assign ratio_Gaddition=$ratio_Gaddition --assign filter_target_base=$filter_target_base \
+    'BEGIN{
+      OFS="\t"
+      r = (1 / ratio_Gaddition) * (1 - ratio_Gaddition)
+      prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1;
+    }{
+      N = 0
+      chrom=$1; start=$2; end=$3;
+      U=$4; M=$5; wU=$6; wM=$7; wH=$8; nuc=$9;
+
+      if (prevChrom != chrom)
+      {
+        prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1
+      }
+
+      if ( (prevStart + 1) != start )
+      {
+        if ( (prevNuc == "G") || (prevNuc == "g") )
+        {
+          N = int( prevM - prevN * r )
+          if (N < 0){ N = 0 }
+          if (prevWU <= prevWH){ N = 0 }
+          if ((filter_target_base == "N") && (prevWU <= prevWH)){ N = 0 }
+          print prevChrom, prevStart+1, prevStart+2, 0, 0, prevWU, prevWM, prevWH, "*", N, 0
+        }
+        N = U
+
+      } else if (( prevNuc != "G" ) && (prevNuc != "g" )) {
+
+        N = U
+
+      } else {
+
+        N = int( prevM - prevN * r )
+        if (N < 0){ N = 0 }
+        if ((filter_target_base == "G") && (wU <= wH)){ N = 0 }
+
+      }
+      if ((filter_target_base == "N") && (wU <= wH)){ N = 0 }
+
+      print $0, N, (N == U)
+      prevChrom=chrom; prevStart=start;
+      prevU  = U ; prevM  = M ;
+      prevWU = wU; prevWM = wM; prevWH = wH;
+      prevN = N; prevNuc = nuc;
+  }'
+}
+
+
+function correctG_rev()
+{
+  # input: chrom=$1;start=$2;end=$3;U=$4;M=$5;vU=$6;vM=$7;vH=$8;nuc=$9;
+  grep -v ^# \
+  | awk --assign ratio_Gaddition=$ratio_Gaddition --assign filter_target_base=$filter_target_base \
+    'BEGIN{
+      OFS="\t"
+      r = (1 / ratio_Gaddition) * (1 - ratio_Gaddition)
+      prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1;
+    }{
+      N = 0
+      chrom=$1;start=$2;end=$3;
+      U=$4; M=$5; wU=$6; wM=$7; wH=$8; nuc=$9;
+
+      if (prevChrom != chrom)
+      {
+        prevU=0;prevM=0;prevN=0;prevNuc="";prevChrom="";prevStart=-1
+      }
+
+      if ( (prevStart - 1) != start )
+      {
+        if ( (prevNuc == "C") || (prevNuc == "c") )
+        {
+          N = int( prevM - prevN * r )
+          if (N < 0){ N = 0 }
+          if (prevWU <= prevWH){ N = 0 }
+          if ((filter_target_base == "N") && (prevWU <= prevWH)){ N = 0 }
+          print chrom, prevStart-1, prevStart, 0, 0, prevWU, prevWM, prevWH, "*", N, 0
+        }
+        N = U
+
+      } else if (( prevNuc != "C" ) && (prevNuc != "c" )) {
+
+        N = U
+
+      } else {
+
+        N = int( prevM - prevN * r )
+        if (N < 0){ N = 0 }
+        if ((filter_target_base == "G") && (wU <= wH)){ N = 0 }
+
+      }
+      if ((filter_target_base == "N") && (wU <= wH)){ N = 0 }
+
+      print $0, N, (N == U)
+      prevChrom=chrom; prevStart=start;
+      prevU = U; prevM = M;
+      prevWU = wU; prevWM = wM; prevWH = wH;
+      prevN = N; prevNuc = nuc;
+  }'
+}
+
+
+function correctG()
+{
+  printf "___correctG:fwd:prep___\n" >&2
+
+  cat ${tmpdir}/fwd_unmatchG.sam.bg \
+      ${tmpdir}/fwd_matchG.sam.bg \
+  | cut -f 1-3 \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  | mergeBed \
+  | awk 'BEGIN{OFS="\t"}{
+      for (i = $2; i < $3; i++){ name=$1","i","i+1; print $1, i, i+1, name}
+    }' \
+  > ${tmpdir}/fwd_target.bed
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/fwd_unmatchG.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/fwd_target.bed.wUnmatchG.bg
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/fwd_matchG.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/fwd_target.bed.wMatchG.bg
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/fwd_matchH.sam.bw ${tmpdir}/fwd_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/fwd_target.bed.wMatchH.bg
+
+  unionBedGraphs -i \
+    ${tmpdir}/fwd_unmatchG.sam.bg \
+    ${tmpdir}/fwd_matchG.sam.bg \
+    ${tmpdir}/fwd_target.bed.wUnmatchG.bg \
+    ${tmpdir}/fwd_target.bed.wMatchG.bg \
+    ${tmpdir}/fwd_target.bed.wMatchH.bg \
+  | nucBed -fi ${genome_fa} -seq -bed - \
+  > ${tmpdir}/fwd_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg
+
+  printf "___correctG:fwd:main___\n" >&2
+  cat ${tmpdir}/fwd_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg \
+  | cut -f 1-8,18 \
+  | correctG_fwd \
+  > ${tmpdir}/fwd_correctG.txt
+
+
+
+  printf "___correctG:rev:prep___\n" >&2
+
+  cat ${tmpdir}/rev_unmatchG.sam.bg \
+      ${tmpdir}/rev_matchG.sam.bg \
+  | cut -f 1-3 \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  | mergeBed \
+  | awk 'BEGIN{OFS="\t"}{
+      for (i = $2; i < $3; i++){ name=$1","i","i+1; print $1, i, i+1, name}
+    }' \
+  > ${tmpdir}/rev_target.bed
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/rev_unmatchG.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/rev_target.bed.wUnmatchG.bg
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/rev_matchG.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/rev_target.bed.wMatchG.bg
+
+  bigWigAverageOverBed -sampleAroundCenter=$filter_window \
+    ${tmpdir}/rev_matchH.sam.bw ${tmpdir}/rev_target.bed /dev/stdout  \
+  | cut -f 1,4 \
+  | sed -e 's/,/\t/g' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/rev_target.bed.wMatchH.bg
+
+  unionBedGraphs -i \
+    ${tmpdir}/rev_unmatchG.sam.bg \
+    ${tmpdir}/rev_matchG.sam.bg \
+    ${tmpdir}/rev_target.bed.wUnmatchG.bg \
+    ${tmpdir}/rev_target.bed.wMatchG.bg \
+    ${tmpdir}/rev_target.bed.wMatchH.bg \
+  | nucBed -fi ${genome_fa} -seq -bed - \
+  > ${tmpdir}/rev_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg
+
+
+  printf "___correctG:fwd:main___\n" >&2
+
+  cat ${tmpdir}/rev_target.bed.unmatchG_matchG_wUnmatchG_wMatchG_wMatchH_nuc.bg \
+  | cut -f 1-8,18 \
+  | sort -k1,1 -k2,2nr --parallel=$parallel \
+  | correctG_rev \
+  > ${tmpdir}/rev_correctG.txt
+
+
+
+  printf "___correctG:post process___\n" >&2
+
+  cat ${tmpdir}/fwd_correctG.txt \
+  | cut -f 1,2,3,10 \
+  | awk '{if($4>0){print}}' \
+  > ${tmpdir}/fwd_correctG.bg
+  bedGraphToBigWig ${tmpdir}/fwd_correctG.bg ${tmpdir}/chrom_sizes ${tmpdir}/fwd_correctG.bw
+
+  cat ${tmpdir}/rev_correctG.txt \
+  | cut -f 1,2,3,10 \
+  | awk '{if($4>0){print}}' \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  > ${tmpdir}/rev_correctG.bg
+  bedGraphToBigWig ${tmpdir}/rev_correctG.bg ${tmpdir}/chrom_sizes ${tmpdir}/rev_correctG.bw
+
+  cat ${tmpdir}/fwd_correctG.bg \
+  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3",+"; print $1,$2,$3,name,$4,"+"}' \
+  > ${tmpdir}/correctG_raw.bed
+  cat ${tmpdir}/rev_correctG.bg \
+  | awk 'BEGIN{OFS="\t"}{name=$1","$2","$3",-"; print $1,$2,$3,name,$4,"-"}' \
+  >> ${tmpdir}/correctG_raw.bed
+
+  cat ${tmpdir}/correctG_raw.bed \
+  | sort -k1,1 -k2,2n --parallel=$parallel \
+  | gzip -c \
+  > ${tmpdir}/correctG.bed.gz
+  rm -f ${tmpdir}/correctG_raw.bed
+}
+
+
+
+###
+### for peak calling
+###
 
 ctssbed_to_bg ()
 {
@@ -237,7 +603,7 @@ ctss_density ()
   | split -l ${splitLines} - ${infile_bed4}.tmp.non_boundary.split.
 
   ls ${infile_bed4}.tmp.non_boundary.split.* \
-  | xargs -n 1 -P ${parallel} -L 1 -I % bigWigAverageOverBed -sampleAroundCenter=$density_width $infile_bw % %.OUT
+  | xargs -P ${parallel} -I % bigWigAverageOverBed -sampleAroundCenter=$density_width $infile_bw % %.OUT
 
   cat ${infile_bed4}.tmp.non_boundary.split.*.OUT \
   | cut -f 1,5 \
@@ -376,7 +742,7 @@ accumulate_neiboring_signals ()
       export -f acc_lr
       infbw=${infile_bw[${strand}]}
       ls ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.* \
-      | xargs -n 1 -P ${parallel} -L 1 -I % bash -c "cat % | acc_lr ${lr} $infbw $chrom_sizes $window_size %.OUT"
+      | xargs -P ${parallel} -I % bash -c "cat % | acc_lr ${lr} $infbw $chrom_sizes $window_size %.OUT"
 
       cat ${tmpdir}/accumulate_neiboring_signals_${lr}_${strand}.txt.split.*.OUT \
       | cut -f 1,4 \
@@ -709,7 +1075,7 @@ counts_fr ()
     split -n "r/${chunkN}" ${tmpdir}/counts_fr.region_for_${strand}.bed ${tmpdir}/counts_fr.region_for_${strand}.bed.split.
 
     ls ${tmpdir}/counts_fr.region_for_${strand}.bed.split.* \
-    | xargs -n 1 -P ${parallel} -L 1 -I % bigWigAverageOverBed ${tmpdir}/infile.${strand}.bw  % %.OUT
+    | xargs -P ${parallel} -I % bigWigAverageOverBed ${tmpdir}/infile.${strand}.bw  % %.OUT
 
     cat ${tmpdir}/counts_fr.region_for_${strand}.bed.split.*.OUT \
     | cut -f 1,4 \
@@ -773,16 +1139,51 @@ counts_fr ()
 }
 
 
-counts_each ()
-{
-  local infileEach=$1
-}
-
-
-
 #--------------------------------------------------------
 # main
 #--------------------------------------------------------
+
+cmd_bam2ctss ()
+{
+  mapQ=20
+  parallel=8
+  filter_window=20
+  filter_target_base=G
+  ratio_Gaddition=0.89
+
+  ### handle options
+  while getopts i:q:n:w:b:f:r:g: opt
+  do
+    case ${opt} in
+    i) infile=${OPTARG};;
+    q) mapQ=${OPTARG};;
+    p) parallel=${OPTARG};;
+    w) filter_window=${OPTARG};;
+    b) filter_target_base=${OPTARG};;
+    f) outfile_full=${OPTARG};;
+    r) ratio_Gaddition=${OPTARG};;
+    g) genome_fa=${OPTARG};;
+    *) usage;;
+    esac
+  done
+
+  if [ ! -n "${infile-}" ]; then usage; fi
+  if [ ! -n "${genome_fa-}" ]; then usage; fi
+
+  ### setup tmpdir
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+
+  splitBam2UnmatchMatchOthers
+  correctG
+
+  if [ -n "${outfile_full-}" ]; then
+    ( cd ${tmpdir} ; tar cvf - . ) | gzip -c  > $outfile_full
+  fi
+  #cp -f ${tmpdir}/correctG.bed.gz ${outfile}
+  gunzip -c ${tmpdir}/correctG.bed.gz
+}
+
 
 cmd_total ()
 {
@@ -791,14 +1192,14 @@ cmd_total ()
   while getopts i:c:p:o: opt
   do
     case ${opt} in
-    i) infilesList=${OPTARG};;
+    i) infiles=${OPTARG};;
     c) chrom_sizes=${OPTARG};;
     p) parallel=${OPTARG};;
     o) out_prefix=${OPTARG};;
     *) usage;;
     esac
   done
-  if [ ! -n "${infilesList-}" ]; then usage; fi
+  if [ ! -n "${infiles-}" ]; then usage; fi
   if [ ! -n "${chrom_sizes-}" ]; then usage; fi
   if [ ! -n "${out_prefix-}" ]; then usage; fi
 
@@ -816,25 +1217,28 @@ cmd_total ()
   export SORT_OPT_NAME="${SORT_OPT_BASE} -k1,1"
 
   export -f ctssbed_to_bg
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+
+  echo $infiles | sed -e 's/,/\n/g' > ${tmpdir}/infilesList.txt
+
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "gunzip -c {} | ctssbed_to_bg + > ${tmpdir}/each/\$(basename {}).fwd.bg"
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "gunzip -c {} | ctssbed_to_bg - > ${tmpdir}/each/\$(basename {}).rev.bg"
 
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/each/\$(basename {}).fwd.bg $chrom_sizes ${tmpdir}/each/\$(basename {}).fwd.bw"
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs  -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/each/\$(basename {}).rev.bg $chrom_sizes ${tmpdir}/each/\$(basename {}).rev.bw"
 
   export -f ctssGzBed_to_TpmBg
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "ctssGzBed_to_TpmBg {} + > ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bg"
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "ctssGzBed_to_TpmBg {} - > ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bg"
 
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bg $chrom_sizes ${tmpdir}/TpmEach/\$(basename {}).tpm.fwd.bw"
-  cat $infilesList | xargs  -n 1 -P ${parallel} -I {} bash -c \
+  cat ${tmpdir}/infilesList.txt | xargs -P ${parallel} -I {} bash -c \
     "bedGraphToBigWig ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bg $chrom_sizes ${tmpdir}/TpmEach/\$(basename {}).tpm.rev.bw"
 
   find  ${tmpdir}/each -name '*.fwd.bw' -type f -print > ${tmpdir}/merge/infileF.list
@@ -885,8 +1289,8 @@ cmd_total ()
   done
 
   #(cd ${tmpdir}/each/;  ls *.bw | sort | xargs tar cavf - ) > ${out_prefix}_each.ctss.bw.tar
-  (cd ${tmpdir}/each/;  ls *.bw | sort | xargs -L 1 -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctss.bw.tar
-  (cd ${tmpdir}/TpmEach/;  ls *.bw | sort | xargs -L 1 -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctssTpm.bw.tar
+  (cd ${tmpdir}/each/;  ls *.bw | sort | xargs -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctss.bw.tar
+  (cd ${tmpdir}/TpmEach/;  ls *.bw | sort | xargs -I % tar --append --file=/dev/stdout %  ) > ${out_prefix}_each.ctssTpm.bw.tar
 }
 
 
@@ -1039,11 +1443,11 @@ cmd_eachcount ()
   ### prep totals
   ###
   find ${tmpdir}/each/ -name '*.fwd.bw' \
-  | xargs -L 1 -P ${parallel} -I % sh -c \
+  | xargs -P ${parallel} -I % sh -c \
      "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}' > %.totalFwd.txt " \
 
   find ${tmpdir}/each/ -name '*.fwd.bw.totalFwd.txt' \
-  | xargs -L 1 -I % cat % \
+  | xargs -I % cat % \
   | sed 's/.fwd.bw,/\t/'  \
   | sed 's/^.*\///'  \
   | sort -k1,1 \
@@ -1051,11 +1455,11 @@ cmd_eachcount ()
 
 
   find ${tmpdir}/each/ -name '*.rev.bw' \
-  | xargs -L 1 -P ${parallel} -I % sh -c \
+  | xargs -P ${parallel} -I % sh -c \
      "bigWigToBedGraph % /dev/stdout | awk '{sum += \$4 * (\$3 - \$2)}END{print \"%,\"sum}' > %.totalRev.txt " \
 
   find ${tmpdir}/each/ -name '*.rev.bw.totalRev.txt' \
-  | xargs -L 1 -I % cat % \
+  | xargs -I % cat % \
   | sed 's/.rev.bw,/\t/'  \
   | sed 's/^.*\///'  \
   | sort -k1,1 \
@@ -1070,11 +1474,11 @@ cmd_eachcount ()
   ### counts in parallel
   ###
   cut -f 1 ${tmpdir}/totals.txt \
-  | xargs -L 1 -P ${parallel} -I % sh -c  \
+  | xargs -P ${parallel} -I % sh -c  \
     "bigWigAverageOverBed ${tmpdir}/each/%.fwd.bw ${tmpdir}/fwd.bed ${tmpdir}/each/%.fwd.bw.txt; gzip ${tmpdir}/each/%.fwd.bw.txt"
 
   cut -f 1 ${tmpdir}/totals.txt \
-  | xargs -L 1 -P ${parallel} -I % sh -c  \
+  | xargs -P ${parallel} -I % sh -c  \
     "bigWigAverageOverBed ${tmpdir}/each/%.rev.bw ${tmpdir}/rev.bed ${tmpdir}/each/%.rev.bw.txt; gzip ${tmpdir}/each/%.rev.bw.txt"
 
 
@@ -1157,6 +1561,31 @@ cmd_eachcount ()
 
   gzip -c ${tmpdir}/out_eachcounts.bed9pls3 > ${out_prefix}_eachcounts.bed9pls3.gz
   cp -f ${tmpdir}/totals.txt ${out_prefix}_eachcounts_totals.txt
+
+
+  cat <<EOF | R --slave | gzip -c > ${out_prefix}_eachcounts.txt.gz
+  library(tidyverse)
+
+  buf = read_tsv("${out_prefix}_eachcounts_totals.txt", col_names=F, comment = "#")
+  totals = unlist( buf[,2] )
+  names(totals) = unlist( buf[,1] )
+
+  bed = read_tsv("${out_prefix}_eachcounts.bed9pls3.gz", col_names=T, comment = "")
+  colnames(bed)[10] = "counts"
+
+  counts = bed %>% 
+    select("name", counts) %>%
+    separate( counts, sep=",", into=names(totals) )
+
+  counts = rbind(
+    c( "01STAT:TOTAL", totals ),
+    counts
+  )
+
+  write.table(counts, sep="\t", quote = F,row.names=F)
+EOF
+
+
 }
 
 
@@ -1494,11 +1923,11 @@ EOF
   gunzip -c ${out_prefix}_region.bed.gz \
   | $0 filter -l ${min_length} -c ${min_counts} -t ${min_tpm} \
   | $0 classify -e ${els_pls_cutoff} \
-  | gzip -c > ${out_prefix}_region_filtered.bed.gz
+  | gzip -c > ${out_prefix}_region_filter_classify.bed.gz
 
   $0 eachcount \
-    -i ${out_prefix}_region_filtered.bed.gz \
-    -o ${out_prefix}_region_filtered \
+    -i ${out_prefix}_region_filter_classify.bed.gz \
+    -o ${out_prefix}_region_filter_classify \
     -e ${out_prefix}_each.ctss.bw.tar \
     -p ${parallel}
 }
@@ -1509,6 +1938,10 @@ EOF
 #--------------------------------------------------------
 
 case "${1:-}" in
+  bam2ctss)
+    shift;
+    cmd_bam2ctss "$@"
+    ;;
   run)
     shift;
     cmd_run "$@"
