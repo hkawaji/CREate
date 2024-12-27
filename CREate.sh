@@ -76,7 +76,6 @@ Run the peak call steps (total, call, filter, classify, eachcount) at once
     [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
 Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
-
 The resulting files are:
 
 * out_prefix_params.txt
@@ -116,7 +115,8 @@ Call divergently transcribed regions as candidates of cis-regulatory elements
 
 The output file is formated in BED9, where the thickStart/thickEnd specify 'core' region which is
 predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
-The 'core' regions do not overlap each other, while the signal considered region may.
+The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
+column indicates activity of CREs based on TPM (transcripts per million).
 
 The output file is formated in BED9, where the thickStart/thickEnd fields define the 'core' region, 
 predominantly divergent ('#'), and the start/end fields specify the broader region where signals
@@ -1134,7 +1134,8 @@ counts_fr ()
       }
 
       color = sprintf( "%d,0,%d", 127 + 127 * directionality , 127 - 127 * directionality )
-      print chr, start, stop, name, directionality_abs, strand, thickStart, thickStop, color
+      #print chr, start, stop, name, directionality_abs, strand, thickStart, thickStop, color
+      print chr, start, stop, name, 0, strand, thickStart, thickStop, color
     }'
 }
 
@@ -1379,6 +1380,7 @@ cmd_call ()
       }
       tpm = 1e6 * c / total
       $4 = $4"|total:"total"|tpm:"tpm
+      $5 = tpm
       print
     }'
 }
