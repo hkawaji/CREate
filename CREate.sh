@@ -1154,7 +1154,7 @@ cmd_bam2ctss ()
   ratio_Gaddition=0.89
 
   ### handle options
-  while getopts i:q:n:w:b:f:r:g: opt
+  while getopts i:q:p:w:b:f:r:g: opt
   do
     case ${opt} in
     i) infile=${OPTARG};;
