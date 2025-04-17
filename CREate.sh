@@ -241,7 +241,7 @@ function splitBam2UnmatchMatchOthers()
   samtools view -H ${infile} > ${tmpdir}/rev_matchH.sam
   samtools view -H ${infile} > ${tmpdir}/rev_others.sam
   samtools view -H ${infile} \
-  | awk '{match($0, /SN:([a-zA-Z0-9_]+)\s+LN:([0-9]+)/, buf); if(RLENGTH>=0){print buf[1]"\t"buf[2]}}' \
+  | awk '{match($0, /SN:([a-zA-Z0-9_\.\-\+#@!&%]+)\s+LN:([0-9]+)/, buf); if(RLENGTH>=0){print buf[1]"\t"buf[2]}}' \
   > ${tmpdir}/chrom_sizes
 
   # fwd
