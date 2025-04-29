@@ -31,7 +31,7 @@ where
 
                      left        right
 
-      foward     (left_fwd)     (right_fwd)
+      forward     (left_fwd)     (right_fwd)
                -------------[N]----------------
       reverse    (left_rev)     (right_rev)
 
@@ -65,7 +65,7 @@ Subcommands
 
 ## bam2ctss
 
-Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
+Generate CTSS (CAGE tag starting site) count file in BED format, from BAM alignment file
 
     $0 bam2ctss -i infile.star.bam -g genome.fa \\
         [-q mapQ (default:20)] \\

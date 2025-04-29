@@ -16,13 +16,14 @@ the transcription initiation profiles in both the sense and antisense directions
 divergent if the following condition is satisfied:
 
 
+
     [ left_rev + right_fwd ] > [ left_fwd + right_rev ] 
   
 where
 
                      left        right
 
-      foward     (left_fwd)     (right_fwd)
+      forward    (left_fwd)     (right_fwd)
                -------------[N]----------------
       reverse    (left_rev)     (right_rev)
 
@@ -54,7 +55,8 @@ Subcommands
 
 
 ## bam2ctss
-Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
+
+Generate CTSS (CAGE tag starting site) count file in BED format, from BAM alignment file
 
     ./CREate.sh bam2ctss -i infile.star.bam -g genome.fa \
         [-q mapQ (default:20)] \
@@ -86,6 +88,7 @@ with the --alignEndsType Local option. This alignment mode ensures that mismatch
 particularly 5′-ends, are treated as soft clips through local alignment.
 
 ## run
+
 Run the peak call steps (total, call, filter, classify, eachcount) at once
 
     ./CREate.sh run  \
@@ -111,6 +114,7 @@ The resulting files are:
 
 
 ## total
+
 Generate total CTSS count file based on multiple CTSS BED files
 
     ./CREate.sh total \
@@ -126,6 +130,7 @@ which produces the following files:
 
 
 ## call
+
 Call divergently transcribed regions as candidates of cis-regulatory elements 
 
     ./CREate.sh call \
@@ -156,6 +161,7 @@ non-overlapping, whereas the signal-considered regions may overlap.
 
 
 ## filter
+
 Filter the regions
 
     gunzip -c output.bed.gz \
@@ -178,6 +184,7 @@ where 0.05 and 0.5 are reasonable for CAGE.
 
 
 ## classify
+
 Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 
     gunzip -c output.bed.gz \
