@@ -11,11 +11,48 @@ usage()
 {
   cat <<EOF
 
-usage: $0 <subcommand> <args>
+CREate is a software tool designed to identify cis-regulatory elements by analyzing transcription
+initiation activity measured by CAGE (Cap Analysis of Gene Expression). Cis-regulatory elements,
+such as promoters and enhancers, are characterized by active transcription and typically exhibit 
+a divergent architecture. For example, promoters that produce mRNA and long noncoding RNA often 
+generate upstream antisense RNA (uaRNA), while enhancers are frequently associated with bidirectional
+transcription, although unidirectional patterns can also occur. Divergent transcription is thus 
+a common hallmark of both promoters and enhancers.
+
+Based on transcription initiation profiles, CREate detects genomic regions exhibiting non-convergent
+transcription and classifies them as candidate cis-regulatory elements. Given a genomic position N and 
+the transcription initiation profiles in both the sense and antisense directions, N is classified as 
+divergent if the following condition is satisfied:
+
+
+    [ left_rev + right_fwd ] > [ left_fwd + right_rev ] 
+  
+where
+
+                     left        right
+
+      forward     (left_fwd)     (right_fwd)
+               -------------[N]----------------
+      reverse    (left_rev)     (right_rev)
+
+Requirements
+
+* samtools (https://github.com/samtools/samtools , tested in version 1.9)
+* bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425) 
+* R (https://www.r-project.org/ , tested in v4.0.2)
+* tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
+* (STAR, to generate the input alignment)  
+
+
+
+## Usage
+
+    $0 <subcommand> <args>
+
 
 
 Subcommands
-===========
 
 * bam2ctss : Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
 * run      : Run the peak call steps (total, call, filter, classify, eachcount) at once
@@ -26,54 +63,55 @@ Subcommands
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
 
 
+## bam2ctss
 
-Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
------------------------------------------------------------------------------
+Generate CTSS (CAGE tag starting site) count file in BED format, from BAM alignment file
 
-  $0 bam2ctss -i infile.star.bam -g genome.fa \\
-    [-q mapQ (default:20)] \\
-    [-p parallel (default:8)] \\
-    [-w filter_window (default:20)] \\
-    [-b filter_target_base (default:G; otheriwse N)] \\
-    [-r ratio_Gaddition (default:0.89)] \\
-    [-f full_set_of_intermediate_files (default: null)] \\
+    $0 bam2ctss -i infile.star.bam -g genome.fa \\
+        [-q mapQ (default:20)] \\
+        [-p parallel (default:8)] \\
+        [-w filter_window (default:20)] \\
+        [-b filter_target_base (default:G; otheriwse N)] \\
+        [-r ratio_Gaddition (default:0.89)] \\
+        [-f full_set_of_intermediate_files (default: null)]
 
-This program accurately counts the 5'-ends of CAGE (Cap Analysis of Gene Expression) 
-reads at single-nucleotide resolution. It focuses on reads containing unencoded “G” 
-which indicate capped 5'-ends of RNAs with higher confidence, as described in a similar
-approach by Oguchi et al. (Science, 2024, 385(6704):eadd8394).
+This subcommand counts capped RNA 5-ends at single-nucleotide resolution based on
+CAGE (Cap Analysis of Gene Expression) read alignments. It selectively considers
+reads that start with a genomically unencoded G (guanine), a hallmark of high-confidence
+capped 5-ends (Science. 385(6704):eadd8394, 2024; Genome Res. 24(4):708-17, 2014).
+However, accurately identifying such unencoded Gs involves technical challenges,
+especially in regions where the genome itself also contains Gs near transcription start sites.
 
-However, distinguishing whether a read has an unencoded “G” can be challenging when the
-genomic DNA upstream (1 bp before the genuine TSS) also contains a “G”. To address this, 
-the program examines surrounding regions (windows) to determine whether such reads should
-be retained or discarded.
+Determining whether a read carries an unencoded G can be difficult when the genomic
+sequence immediately upstream (one nucleotide before the true TSS) also harbors G. 
+To resolve this ambiguity, the subcommand examines the surrounding sequence within
+a defined window to determine whether such reads should be retained or discarded.
 
-For genuine TSSs originating from “G-stretch” regions, accurately identifying the exact
-start site can be complicated. This ambiguity arises because the “G” at the 5'-end may
-correspond to an encoded or unencoded “G”. To handle this issue, the program applies 
-a correction by subtracting certain reads based on an assumed G-addition ratio and 
-adjusts TSS locations accordingly.
+Accurate identification of transcription start sites (TSSs) within G-stretch regions
+is further complicated by ambiguity over whether the 5-end guanine is genomically encoded or 
+the result of post-transcriptional G-addition. the subcommand applies a correction strategy 
+by shifting a proportion of reads based on an assumed G-addition rate.
 
-Note that the input file must be a BAM file generated using STAR (https://github.com/alexdobin/STAR) 
-with the "--alignEndsType local" option. This alignment mode ensures that mismatched ends, 
-particularly 5'-ends, are treated as soft clips through local alignment.
+Note: The input file must be a BAM file generated by STAR (https://github.com/alexdobin/STAR) 
+with the --alignEndsType Local option. This alignment mode ensures that mismatched ends,
+particularly 5-ends, are treated as soft clips through local alignment.
 
 
+## run
 
 Run the peak call steps (total, call, filter, classify, eachcount) at once
---------------------------------------------------------------------------
 
-  $0 run  \\
-    -i infiles(comma separated) \\
-    -c chrom_sizes \\
-    -o out_prefix \\
-    [-w window_size(default:200)] \\
-    [-l min_length] \\
-    [-n min_counts] \\
-    [-t min_tpm] \\
-    [-e ELS_or_PLS_threshold(default: 2)]
-    [-p parallel(default:20)] \\
-    [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
+    $0 run  \\
+        -i infiles(comma separated) \\
+        -c chrom_sizes \\
+        -o out_prefix \\
+        [-w window_size(default:200)] \\
+        [-l min_length] \\
+        [-n min_counts] \\
+        [-t min_tpm] \\
+        [-e ELS_or_PLS_threshold(default: 2)] \\
+        [-p parallel(default:20)] \\
+        [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
 Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
 The resulting files are:
@@ -85,14 +123,15 @@ The resulting files are:
 * out_prefix_region_filtered.bed.gz
 
 
-Generate total CTSS count file based on multiple CTSS BED files
----------------------------------------------------------------
+## total
 
-  $0 total \\
-          -i infiles(comma separated) \\
-          -c chrom_sizes \\
-          -o out_prefix \\
-          [-p parallel(default:20)]
+Generate total CTSS count file based on multiple CTSS BED files
+
+    $0 total \\
+        -i infiles(comma separated) \\
+        -c chrom_sizes \\
+        -o out_prefix \\
+        [-p parallel(default:20)]
 
 which produces the following files:
 
@@ -100,20 +139,21 @@ which produces the following files:
 * PREFIX_max.ctss.{bed.gz|fwd.bw|rev.bw}
 
 
+## call
+
 Call divergently transcribed regions as candidates of cis-regulatory elements 
-------------------------------------------------------------------------------
 
-   $0 call \\
-          -i infile.ctss.bed.gz \\
-          -c chrom_sizes \\
-          [-w window_size(default:200)] \\
-          [-m outfileMax.ctss.bed.gz] \\
-          [-p parallel(default:20)] \\
-          [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
-  | gzip -c > output.bed.gz
+    $0 call \\
+        -i infile.ctss.bed.gz \\
+        -c chrom_sizes \\
+        [-w window_size(default:200)] \\
+        [-m outfileMax.ctss.bed.gz] \\
+        [-p parallel(default:20)] \\
+        [-z compress_decompress_program(default:gzip; zstd is recommended if available)] \\
+    | gzip -c > output.bed.gz
 
 
-The output file is formated in BED9, where the thickStart/thickEnd specify 'core' region which is
+The output file is formatted in BED9, where the thickStart/thickEnd specify 'core' region which is
 predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
 The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
 column indicates CRE activity based on TPM (transcripts per million).
@@ -122,100 +162,61 @@ The output file is formated in BED9, where the thickStart/thickEnd fields define
 predominantly divergent ('#'), and the start/end fields specify the broader region where signals
 are considered ('+'). 
 
-        ffffffffffff
-   +++++########++++
-   rrrrrrrrrrrrr
+            ffffffffffff
+       +++++########++++
+       rrrrrrrrrrrrr
 
 Forward signals are indicated in 'f' and reverse signals in 'r'. The 'core' regions are
 non-overlapping, whereas the signal-considered regions may overlap.
 
 
-
+## filter
 
 Filter the regions
-------------------
 
-  gunzip -c output.bed.gz \\
-  | $0 filter \\
-          [-D max_directionality(default:1)] \\
-          [-d min_directionality(default:0)] \\
-          [-C max_counts(default:-1)] \\
-          [-c min_counts(default:4)] \\
-          [-T max_tpm(default:-1)] \\
-          [-t min_tpm(default:0)] \\
-          [-e min_counts_in_each_strand(default:0)] \\
-          [-x min_ctssMax(default:0)] \\
-          [-y min_ctssMax_in_each_strand(default:0)] \\
-          [-L max_length(default:-1)] \\
-          [-l min_length(default:5)] \\
-          [-v] (for invert match, such as "grep -v")
+    gunzip -c output.bed.gz \\
+    | $0 filter \\
+        [-D max_directionality(default:1)] \\
+        [-d min_directionality(default:0)] \\
+        [-C max_counts(default:-1)] \\
+        [-c min_counts(default:4)] \\
+        [-T max_tpm(default:-1)] \\
+        [-t min_tpm(default:0)] \\
+        [-e min_counts_in_each_strand(default:0)] \\
+        [-x min_ctssMax(default:0)] \\
+        [-y min_ctssMax_in_each_strand(default:0)] \\
+        [-L max_length(default:-1)] \\
+        [-l min_length(default:5)] \\
+        [-v] (for invert match, such as "grep -v")
 
 Filtering based on expression (-t TPM) is recommended, 
 where 0.05 and 0.5 are reasonable for CAGE.
 
 
+## classify
+
 Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
----------------------------------------------------------------------------------------
 
-  gunzip -c output.bed.gz \\
-  | $0 classify \\
-         [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
+    gunzip -c output.bed.gz \\
+    | $0 classify \\
+        [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
 
 
+## eachcount
 
 Count reads belonging to the the divergently transcribed regions per sample
----------------------------------------------------------------------------
 
-  $0 eachcount \\
-          -i divergently_transcribed_region.bed.gz  (BED9 format) \\
-          -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
-          -o out_prefix \\
-          [-p parallel(default:20)]
-
+    $0 eachcount \\
+        -i divergently_transcribed_region.bed.gz  (BED9 format) \\
+        -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
+        -o out_prefix \\
+        [-p parallel(default:20)]
 
 
-Method overview
-================
+## Author
 
-This software is designed to identify cis-regulatory elements by analyzing transcription
-initiation activities measured by CAGE (Cap Analysis of Gene Expression). Promoters are
-charknown to have upstream antisense RNA (uaRNA), while enhancers are typically transcribed
-bidirectionally. Divergent transcription is a shared feature of both promoters and enhancers,
-although unidirectional transcription can also occur in both types of elements. Genomic
-regions exhibiting divergently transcription are identified as potential cis-regulatory elements.
-
-
-Given a genomic position ([N] below) and transcription initiation profiles in sense and antisense, 
-the position N is cosidered as divergent if the following formulat is true:
-
-Given a genomic position ([N] below) and the transcription initiation profiles in sense and antisense
-orientations, position N is considered as divergent if the following formula holds true:
-
-  [ left_rev + right_fwd ] > [ left_fwd + right_rev ] 
-  
-where
-
-                 left        right
-
-  foward     (left_fwd)     (right_fwd)
-           -------------[N]----------------
-  reverse    (left_rev)     (right_rev)
-
-
-
-Requirements
--------------
-* samtools (https://github.com/samtools/samtools , tested in version 1.9)
-* bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
-* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425) 
-* R (https://www.r-project.org/ , tested in v4.0.2)
-* tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
-* (STAR, to generate the input alignment)  
-
-
-Author
-------
 KAWAJI, Hideya <h.kawaji@gmail.com>
+
 
 EOF
   exit 1;
