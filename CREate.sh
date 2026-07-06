@@ -12,7 +12,7 @@ if ! awk --version 2>/dev/null | grep -qi "GNU Awk"; then
 fi
 
 ### CREate version (bumped at release time by release.sh; keep in sync with the git tag)
-VERSION="0.2.1"
+VERSION="0.2.2"
 
 
 ### define error message
