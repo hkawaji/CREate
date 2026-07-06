@@ -73,6 +73,8 @@ Subcommands
 * filter   : Filter the regions
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
+* knownprom: Prepare promoter regions of known genes and assign their activity
+* link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
 
 
@@ -224,6 +226,43 @@ Count reads belonging to the the divergently transcribed regions per sample
         -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
         -o out_prefix \\
         [-p parallel(default:20)]
+
+
+## knownprom
+
+Prepare promoter regions of known genes and assign their activity
+
+    $0 knownprom \\
+        -g gene.bed12.gz (BED12 gene models) \\
+        -r cre (CREate call/classify output; 5th column = TPM) \\
+        -c chrom_sizes \\
+        [-w promoterWindowHalf(default:500)]
+
+The transcription start of each gene is extended by promoterWindowHalf on both sides,
+overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
+promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
+
+
+## link
+
+Predict regulatory interactions between CREs and known promoters
+
+    $0 link \\
+        -k knownpromoter (output of knownprom) \\
+        -r cre (CREate call/classify output; 5th column = TPM) \\
+        [-w windowSize(default:200000)] \\
+        [-a power_law_alpha(default:2.1)] \\
+        [-d pseudoCpm(default:0.01)] \\
+        [-i scoreCutoffAci(default:1)] \\
+        [-p promCutoff(default:1)]
+
+CRE-promoter pairs within windowSize are considered (self-overlapping pairs are excluded).
+For each pair, the estimated contact follows a power law of genomic distance
+(alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
+ACI (Active Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
+that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter. The output is
+BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end), name (packing
+source/target/dist/estCnt/expCre/expAnnP/ACI/ABC), score(=ACI), CRE strand, promoter strand.
 
 
 ## Author
@@ -1812,6 +1851,152 @@ cmd_classify ()
 }
 
 
+cmd_knownpromoteractivity ()
+{
+  promoterWindowHalf=500
+
+  ### handle options
+  while getopts g:r:c:w: opt
+  do
+    case ${opt} in
+    g) gene=${OPTARG};;
+    r) cre=${OPTARG};;
+    c) chrom_sizes=${OPTARG};;
+    w) promoterWindowHalf=${OPTARG};;
+    *) usage;;
+    esac
+  done
+
+  if [ ! -n "${gene-}" ]; then usage; fi
+  if [ ! -n "${cre-}" ]; then usage; fi
+  if [ ! -n "${chrom_sizes-}" ]; then usage; fi
+
+  # cluster known promoters and assign their activities (strand agnostic)
+  gunzip -c ${gene} \
+  | awk 'BEGIN{OFS="\t"}{
+      chromStart = $2; if( $6 == "-") {chromStart = $3 - 1};
+      $2 = chromStart
+      $3 = chromStart + 1
+      print
+    }' \
+  | slopBed -i - -g ${chrom_sizes} -b ${promoterWindowHalf} \
+  | mergeBed -c 4 -o distinct -i - \
+  | intersectBed -wa -wb -a - -b ${cre} \
+  | sort -k1,1 -k2,2n -k3,3n -k4,4 \
+  | groupBy -g 1,2,3,4 -c 9 -o sum \
+  | awk '{print $0"\t."}'
+}
+
+
+cmd_link ()
+{
+  windowSize=200000
+  power_law_alpha=2.1
+  pseudoCpm=0.01
+  #scoreCutoffAci=-Inf
+  scoreCutoffAci=1
+  promCutoff=1
+
+  ### handle options
+  while getopts k:r:w:c:a:d:i:p: opt
+  do
+    case ${opt} in
+    k) knownpromoter=${OPTARG};;
+    r) cre=${OPTARG};;
+    w) windowSize=${OPTARG};;
+    a) power_law_alpha=${OPTARG};;
+    d) pseudoCpm=${OPTARG};;
+    i) scoreCutoffAci=${OPTARG};;
+    p) promCutoff=${OPTARG};;
+    *) usage;;
+    esac
+  done
+
+  if [ ! -n "${knownpromoter-}" ]; then usage; fi
+  if [ ! -n "${cre-}" ]; then usage; fi
+
+  ### setup tmpdir
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+
+  bedtools window -w ${windowSize} -a ${cre} -b ${knownpromoter} \
+  | awk 'BEGIN{OFS="\t"}
+    function is_ovlp(c1,s1,e1,c2,s2,e2 ) {
+      flag = "no"
+      if ( c1 == c2 ) {
+        if ( ((s1 <= s2 ) && ( s2 <= e1 )) ||
+             ((s1 <= e2 ) && ( e2 <= e1 )) ||
+             ((s2 <= s1 ) && ( s1 <= e2 )) ||
+             ((s2 <= e1 ) && ( e1 <= e2 )) )
+        {
+          flag = "yes"
+        }
+      }
+      return flag
+    }
+    {
+      a_chrom =  $1; a_chromStart =  $2; a_chromEnd =  $3;
+      b_chrom = $10; b_chromStart = $11; b_chromEnd = $12;
+      flag = is_ovlp( a_chrom, a_chromStart, a_chromEnd, b_chrom, b_chromStart, b_chromEnd)
+      if ( flag == "no" ) { print }
+    }' \
+  | gzip -c > ${tmpdir}/cre_annP.bed2bed.gz
+
+
+  cat <<EOF | R --slave
+
+  library(tidyverse)
+  options(scipen=999)
+
+  df = read.table("${tmpdir}/cre_annP.bed2bed.gz", sep="\t")
+  colnames(df) = c(
+    "a.chrom","a.chromStart","a.chromEnd","a.name","a.score","a.strand","a.thickStart","a.thickEnd","a.color",
+    "b.chrom","b.chromStart","b.chromEnd","b.name","b.score","b.strand"
+  )
+
+  # Compute ACI (Active Contact Index)
+  #
+  # estimatedContacs based on power law dist. As the estimation is generally
+  # for active loci, we set the parmeter (alpha) as one for open chromatin (see below).
+  # ACI is scaled so that a parir consisting of CREs and annP with 1cpm in 100k distance takes 1
+  #
+  # note:
+  # - alpha = 2.1, 1.5, 0 for open, transition, and closed mode in SBS model
+  #   Pombo and Nicodemi, Transcription 2014 (PMID: 25764220)
+  # - dist is based on the unit of 1M
+  #
+  df = df %>%
+    mutate( dist = abs((a.chromStart + a.chromEnd)/2 - (b.chromStart + b.chromEnd)/2 ) * 1e-6 ) %>%
+    mutate( estimatedContacts = 1/( (dist)^${power_law_alpha}) ) %>%
+    mutate( expCre = a.score , expAnnP = b.score) %>%
+    mutate( expCre.pc = expCre + ${pseudoCpm} , expAnnP.pc = expAnnP + ${pseudoCpm} ) %>%
+    mutate( ACI = estimatedContacts * expCre.pc * expAnnP.pc / 10^${power_law_alpha} ) %>%
+    group_by( b.name ) %>%
+    mutate( ABC = ACI / sum(ACI) ) %>%
+    filter( ACI >= ${scoreCutoffAci} ) %>%
+    filter( expAnnP >= ${promCutoff} ) %>%
+    mutate( newName = paste0(
+      "[source]" , a.name    ,
+      "[target]" , b.name    ,
+      "[dist]"   , dist ,
+      "[estCnt]" , estimatedContacts  ,
+      "[expCre]" , expCre,
+      "[expAnnP]", expAnnP,
+      "[ACI]"    , ACI ,
+      "[ABC]"    , ABC
+    ) ) %>%
+    mutate( newScore = ACI) %>%
+    ungroup() %>%
+    select(
+      a.chrom, a.chromStart, a.chromEnd,
+      b.chrom, b.chromStart, b.chromEnd,
+      newName, newScore, a.strand, b.strand
+    ) %>%
+    write.table( sep="\t", quote=F, row.names=F,col.names=F)
+EOF
+}
+
+
 cmd_run ()
 {
 
@@ -1918,6 +2103,14 @@ case "${1:-}" in
   eachcount)
     shift;
     cmd_eachcount "$@"
+    ;;
+  knownprom)
+    shift;
+    cmd_knownpromoteractivity "$@"
+    ;;
+  link)
+    shift;
+    cmd_link "$@"
     ;;
   version|-v|--version)
     echo "CREate ${VERSION}"

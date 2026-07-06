@@ -53,6 +53,8 @@ Subcommands
 * filter   : Filter the regions
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
+* knownprom: Prepare promoter regions of known genes and assign their activity
+* link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
 
 
@@ -203,6 +205,43 @@ Count reads belonging to the the divergently transcribed regions per sample
         -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \
         -o out_prefix \
         [-p parallel(default:20)]
+
+
+## knownprom
+
+Prepare promoter regions of known genes and assign their activity
+
+    ./CREate.sh knownprom \
+        -g gene.bed12.gz (BED12 gene models) \
+        -r cre (CREate call/classify output; 5th column = TPM) \
+        -c chrom_sizes \
+        [-w promoterWindowHalf(default:500)]
+
+The transcription start of each gene is extended by promoterWindowHalf on both sides,
+overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
+promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
+
+
+## link
+
+Predict regulatory interactions between CREs and known promoters
+
+    ./CREate.sh link \
+        -k knownpromoter (output of knownprom) \
+        -r cre (CREate call/classify output; 5th column = TPM) \
+        [-w windowSize(default:200000)] \
+        [-a power_law_alpha(default:2.1)] \
+        [-d pseudoCpm(default:0.01)] \
+        [-i scoreCutoffAci(default:1)] \
+        [-p promCutoff(default:1)]
+
+CRE-promoter pairs within windowSize are considered (self-overlapping pairs are excluded).
+For each pair, the estimated contact follows a power law of genomic distance
+(alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
+ACI (Active Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
+that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter. The output is
+BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end), name (packing
+source/target/dist/estCnt/expCre/expAnnP/ACI/ABC), score(=ACI), CRE strand, promoter strand.
 
 
 ## Author
