@@ -30,9 +30,10 @@ where
 
 Requirements
 
+* gawk (GNU awk; CREate uses --assign and 3-argument match(), tested in v5.x)
 * samtools (https://github.com/samtools/samtools , tested in version 1.9)
 * bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
-* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425) 
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425; provides bedGraphToBigWig, bigWigAverageOverBed, bigWigMerge, bigWigToBedGraph)
 * R (https://www.r-project.org/ , tested in v4.0.2)
 * tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
 * (STAR, to generate the input alignment)  
@@ -50,8 +51,9 @@ Subcommands
 * total    : Generate total CTSS count file based on multiple CTSS BED files
 * call     : Call divergently transcribed regions as candidates of cis-regulatory elements 
 * filter   : Filter the regions
-* classify : Classify the regions to PLE (promoter level expression) or ELE (enhancer level expression)
+* classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
+* version  : Print the CREate version
 
 
 ## bam2ctss
@@ -99,18 +101,22 @@ Run the peak call steps (total, call, filter, classify, eachcount) at once
         [-l min_length] \
         [-n min_counts] \
         [-t min_tpm] \
-        [-e ELS_or_PLS_threshold(default: 2)] \
+        [-e PLA_or_ELA_threshold_in_TPM(default: 2)] \
         [-p parallel(default:20)] \
         [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
 Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
 The resulting files are:
 
-* out_prefix_params.txt
-* out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
+* out_prefix_param.txt
+* out_prefix_{total|max}.ctss.{bed.gz|fwd.bw|rev.bw}
 * out_prefix_each.ctss.bw.tar
+* out_prefix_each.ctssTpm.bw.tar
 * out_prefix_region.bed.gz
-* out_prefix_region_filtered.bed.gz
+* out_prefix_region_filter_classify.bed.gz
+* out_prefix_region_filter_classify_eachcounts.bed9pls3.gz
+* out_prefix_region_filter_classify_eachcounts_totals.txt
+* out_prefix_region_filter_classify_eachcounts.txt.gz
 
 
 ## total
@@ -147,10 +153,6 @@ The output file is formatted in BED9, where the thickStart/thickEnd specify 'cor
 predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
 The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
 column indicates CRE activity based on TPM (transcripts per million).
-
-The output file is formated in BED9, where the thickStart/thickEnd fields define the 'core' region, 
-predominantly divergent ('#'), and the start/end fields specify the broader region where signals
-are considered ('+'). 
 
             ffffffffffff
        +++++########++++
@@ -189,7 +191,7 @@ Classify the regions to PLA (promoter level activity) or ELA (enhancer level act
 
     gunzip -c output.bed.gz \
     | ./CREate.sh classify \
-        [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
+        [-e PLA_or_ELA_threshold_in_TPM (default: 2)]
 
 
 ## eachcount

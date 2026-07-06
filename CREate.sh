@@ -5,11 +5,22 @@ set -ue
 ### important for making 'sort' and 'join' to be compatible
 export LC_ALL=C
 
+### require GNU awk (uses --assign and 3-argument match())
+if ! awk --version 2>/dev/null | grep -qi "GNU Awk"; then
+  echo "Error: GNU awk (gawk) is required, but 'awk' is not GNU Awk." >&2
+  exit 1
+fi
+
+### CREate version (bumped at release time by release.sh; keep in sync with the git tag)
+VERSION="0.2.1"
+
 
 ### define error message
 usage()
 {
   cat <<EOF
+
+CREate version ${VERSION}
 
 CREate is a software tool designed to identify cis-regulatory elements by analyzing transcription
 initiation activity measured by CAGE (Cap Analysis of Gene Expression). Cis-regulatory elements,
@@ -37,12 +48,13 @@ where
 
 Requirements
 
+* gawk (GNU awk; CREate uses --assign and 3-argument match(), tested in v5.x)
 * samtools (https://github.com/samtools/samtools , tested in version 1.9)
 * bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
-* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425) 
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425; provides bedGraphToBigWig, bigWigAverageOverBed, bigWigMerge, bigWigToBedGraph)
 * R (https://www.r-project.org/ , tested in v4.0.2)
 * tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
-* (STAR, to generate the input alignment)  
+* (STAR, to generate the input alignment)
 
 
 
@@ -59,8 +71,9 @@ Subcommands
 * total    : Generate total CTSS count file based on multiple CTSS BED files
 * call     : Call divergently transcribed regions as candidates of cis-regulatory elements 
 * filter   : Filter the regions
-* classify : Classify the regions to PLE (promoter level expression) or ELE (enhancer level expression)
+* classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
+* version  : Print the CREate version
 
 
 ## bam2ctss
@@ -109,18 +122,22 @@ Run the peak call steps (total, call, filter, classify, eachcount) at once
         [-l min_length] \\
         [-n min_counts] \\
         [-t min_tpm] \\
-        [-e ELS_or_PLS_threshold(default: 2)] \\
+        [-e PLA_or_ELA_threshold_in_TPM(default: 2)] \\
         [-p parallel(default:20)] \\
         [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
 
 Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
 The resulting files are:
 
-* out_prefix_params.txt
-* out_prefix_{max|total}.ctss.{bed.gz|fwd.bw|rev.bw}
+* out_prefix_param.txt
+* out_prefix_{total|max}.ctss.{bed.gz|fwd.bw|rev.bw}
 * out_prefix_each.ctss.bw.tar
+* out_prefix_each.ctssTpm.bw.tar
 * out_prefix_region.bed.gz
-* out_prefix_region_filtered.bed.gz
+* out_prefix_region_filter_classify.bed.gz
+* out_prefix_region_filter_classify_eachcounts.bed9pls3.gz
+* out_prefix_region_filter_classify_eachcounts_totals.txt
+* out_prefix_region_filter_classify_eachcounts.txt.gz
 
 
 ## total
@@ -157,10 +174,6 @@ The output file is formatted in BED9, where the thickStart/thickEnd specify 'cor
 predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
 The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
 column indicates CRE activity based on TPM (transcripts per million).
-
-The output file is formated in BED9, where the thickStart/thickEnd fields define the 'core' region, 
-predominantly divergent ('#'), and the start/end fields specify the broader region where signals
-are considered ('+'). 
 
             ffffffffffff
        +++++########++++
@@ -199,7 +212,7 @@ Classify the regions to PLA (promoter level activity) or ELA (enhancer level act
 
     gunzip -c output.bed.gz \\
     | $0 classify \\
-        [-e ELS_or_PLS_threshold_in_TPM (default: 2)]
+        [-e PLA_or_ELA_threshold_in_TPM (default: 2)]
 
 
 ## eachcount
@@ -1017,9 +1030,9 @@ tighten_unidirectional ()
   | awk 'BEGIN{OFS="\t"}{
       start_n = split($2,start_a,",")
       leftmost = start_a[1]
-      for (i=2;i<=stop_n;i++)
+      for (i=2;i<=start_n;i++)
       {
-        if (leftmost < start_a[i]) { leftmost = start_a[i]}
+        if (leftmost > start_a[i]) { leftmost = start_a[i]}
       }
       print $1,"leftmost",leftmost
     }' \
@@ -1306,7 +1319,7 @@ cmd_call ()
   infileMax=''
   infileEach=''
   prog_compression=gzip
-  while getopts i:m:c:d:w:p:m:z: opt
+  while getopts i:m:c:w:p:z: opt
   do
     case ${opt} in
     i) infile=${OPTARG};;
@@ -1737,70 +1750,6 @@ cmd_filter ()
 
 
 
-cmd_maxfilter ()
-{
-  ### handle options
-  max_tpmMax=-1
-  min_tpmMax=0
-  max_countsMax=-1
-  min_countsMax=0
-
-  invert_match="false"
-
-  while getopts t:T:c:C:v: opt
-  do
-    case ${opt} in
-    T) max_tpmMax=${OPTARG};;
-    t) min_tpmMax=${OPTARG};;
-    C) max_countsMax=${OPTARG};;
-    c) min_countsMax=${OPTARG};;
-    v) invert_match="true";;
-    *) usage;;
-    esac
-  done
-
-  printf "### maxfilter\n"  >&2
-
-  awk \
-    --assign max_tpmMax=$max_tpmMax \
-    --assign min_tpmMax=$min_tpmMax \
-    --assign max_countsMax=$max_countsMax \
-    --assign min_countsMax=$min_countsMax \
-    --assign invert_match=$invert_match \
-  'BEGIN{OFS="\t"}{
-
-    flagM = "true"
-
-    if (match( $0, /tpmMax:[-.0-9]+/)) {
-      tpmMax = substr($0, RSTART, RLENGTH)
-      sub("tpmMax:", "", tpmMax)
-      tpmMax += 0;
-    }
-    if (match( $0, /countsMax:[-.0-9]+/)) {
-      countsMax = substr($0, RSTART, RLENGTH)
-      sub("countsMax:", "", countsMax)
-      countsMax += 0;
-    }
-
-    if (    ( max_tpmMax >= 0) &&
-            ( tpmMax > max_tpmMax ) ) { flagM = "false" }
-    else if ( tpmMax < min_tpmMax )   { flagM = "false" }
-
-    else if ( ( max_countsMax >= 0) &&
-              ( countsMax > max_countsMax ) ) { flagM = "false" }
-    else if ( countsMax < min_countsMax )     { flagM = "false" }
-
-    # invert
-    if ( invert_match == "true" ) {
-      if ( flagM == "true" ) { flagM = "false" } else { flagM = "true" }
-    }
-    if ( flagM == "true" ) { print }
-  }'
-}
-
-
-
-
 cmd_classify ()
 {
   ### handle options
@@ -1970,9 +1919,8 @@ case "${1:-}" in
     shift;
     cmd_eachcount "$@"
     ;;
-  maxfilter)
-    shift;
-    cmd_maxfilter "$@"
+  version|-v|--version)
+    echo "CREate ${VERSION}"
     ;;
   *)
     usage
