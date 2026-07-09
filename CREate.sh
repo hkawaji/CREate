@@ -241,6 +241,7 @@ Prepare promoter regions of known genes and assign their activity
 The transcription start of each gene is extended by promoterWindowHalf on both sides,
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
+The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
 
 
 ## link
@@ -260,9 +261,15 @@ CRE-promoter pairs within windowSize are considered (self-overlapping pairs are 
 For each pair, the estimated contact follows a power law of genomic distance
 (alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
 ACI (Active Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
-that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter. The output is
-BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end), name (packing
-source/target/dist/estCnt/expCre/expAnnP/ACI/ABC), score(=ACI), CRE strand, promoter strand.
+that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter.
+
+The output is BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end),
+name, score(=ABC), CRE strand, promoter strand. The 'name' (7th column) is a flat, self-
+describing 'key:value|key:value|...' string (CREate convention) in three namespaces:
+  src_*  : source CRE fields inherited from its name (src_id, src_tpm, src_class, ...)
+  tgt_id : target promoter/gene name
+  link_* : link_dist(Mb), link_estCnt, link_expCre, link_expProm, link_ACI, link_ABC
+No value contains '|' or ':' (names are sanitized), so it parses by splitting on '|' then ':'.
 
 
 ## Author
@@ -1884,7 +1891,7 @@ cmd_knownpromoteractivity ()
   | intersectBed -wa -wb -a - -b ${cre} \
   | sort -k1,1 -k2,2n -k3,3n -k4,4 \
   | groupBy -g 1,2,3,4 -c 9 -o sum \
-  | awk '{print $0"\t."}'
+  | awk 'BEGIN{FS=OFS="\t"}{gsub(/\|/,",",$4); print $0"\t."}'
 }
 
 
@@ -1946,7 +1953,6 @@ cmd_link ()
   cat <<EOF | R --slave
 
   library(tidyverse)
-  options(scipen=999)
 
   df = read.table("${tmpdir}/cre_annP.bed2bed.gz", sep="\t")
   colnames(df) = c(
@@ -1976,16 +1982,16 @@ cmd_link ()
     filter( ACI >= ${scoreCutoffAci} ) %>%
     filter( expAnnP >= ${promCutoff} ) %>%
     mutate( newName = paste0(
-      "[source]" , a.name    ,
-      "[target]" , b.name    ,
-      "[dist]"   , dist ,
-      "[estCnt]" , estimatedContacts  ,
-      "[expCre]" , expCre,
-      "[expAnnP]", expAnnP,
-      "[ACI]"    , ACI ,
-      "[ABC]"    , ABC
+      "src_id:"       , gsub("|", "|src_", a.name, fixed=TRUE),
+      "|tgt_id:"      , b.name,
+      "|link_dist:"   , signif(dist,4),
+      "|link_estCnt:" , signif(estimatedContacts,4),
+      "|link_expCre:" , signif(expCre,4),
+      "|link_expProm:", signif(expAnnP,4),
+      "|link_ACI:"    , signif(ACI,4),
+      "|link_ABC:"    , signif(ABC,4)
     ) ) %>%
-    mutate( newScore = ACI) %>%
+    mutate( newScore = signif(ABC,4) ) %>%
     ungroup() %>%
     select(
       a.chrom, a.chromStart, a.chromEnd,

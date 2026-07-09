@@ -220,6 +220,7 @@ Prepare promoter regions of known genes and assign their activity
 The transcription start of each gene is extended by promoterWindowHalf on both sides,
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
+The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
 
 
 ## link
@@ -239,9 +240,15 @@ CRE-promoter pairs within windowSize are considered (self-overlapping pairs are 
 For each pair, the estimated contact follows a power law of genomic distance
 (alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
 ACI (Active Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
-that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter. The output is
-BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end), name (packing
-source/target/dist/estCnt/expCre/expAnnP/ACI/ABC), score(=ACI), CRE strand, promoter strand.
+that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter.
+
+The output is BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end),
+name, score(=ABC), CRE strand, promoter strand. The 'name' (7th column) is a flat, self-
+describing 'key:value|key:value|...' string (CREate convention) in three namespaces:
+  src_*  : source CRE fields inherited from its name (src_id, src_tpm, src_class, ...)
+  tgt_id : target promoter/gene name
+  link_* : link_dist(Mb), link_estCnt, link_expCre, link_expProm, link_ACI, link_ABC
+No value contains '|' or ':' (names are sanitized), so it parses by splitting on '|' then ':'.
 
 
 ## Author
