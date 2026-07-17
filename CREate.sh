@@ -74,6 +74,8 @@ Subcommands
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
 * knownprom: Prepare promoter regions of known genes and assign their activity
+* makeprom : Build promoter regions of known genes (strand-aware)
+* promact  : Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
 * creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
 * link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
@@ -243,6 +245,36 @@ The transcription start of each gene is extended by promoterWindowHalf on both s
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
 The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
+
+
+## makeprom
+
+Build promoter regions of known genes (strand-aware)
+
+    $0 makeprom \\
+        -g gene.bed12.gz (BED12 gene models) \\
+        -c chrom_sizes \\
+        [-w promoterWindowHalf(default:500)] \\
+    | gzip -c > promoter.bed.gz
+
+The TSS of each gene (strand-aware) is extended by promoterWindowHalf on both sides,
+and overlapping windows on the SAME strand are merged (opposite strands are kept
+separate). Output is BED6: chrom, start, end, gene(s) (with '|' replaced by ','),
+0, strand. No activity is assigned here; use promact to quantify.
+
+
+## promact
+
+Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
+
+    $0 promact \\
+        -i promoter.bed.gz (output of makeprom; gzip or plain) \\
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \\
+        [-p parallel(default:20)]
+
+For each promoter the same-strand (sense) CAGE is summed over [start,end] and
+normalized to TPM by the total of all CTSS counts (both strands) in the input.
+The output is the input BED6 with column 5 replaced by the activity (TPM).
 
 
 ## creact
@@ -1954,6 +1986,63 @@ cmd_creact ()
 }
 
 
+cmd_makeprom ()
+{
+  ### handle options
+  promoterWindowHalf=500
+  while getopts g:c:w: opt
+  do
+    case ${opt} in
+    g) gene=${OPTARG};;
+    c) chrom_sizes=${OPTARG};;
+    w) promoterWindowHalf=${OPTARG};;
+    *) usage;;
+    esac
+  done
+  if [ ! -n "${gene-}" ]; then usage; fi
+  if [ ! -n "${chrom_sizes-}" ]; then usage; fi
+  printf "### makeprom\n"  >&2
+
+  # strand-aware promoter regions: TSS(strand) -> window -> strand-aware merge
+  gzip -cdf ${gene} \
+  | awk 'BEGIN{OFS="\t"}{
+      chromStart = $2; if( $6 == "-" ) { chromStart = $3 - 1 }
+      $2 = chromStart
+      $3 = chromStart + 1
+      print
+    }' \
+  | slopBed -i - -g ${chrom_sizes} -b ${promoterWindowHalf} \
+  | sort -k1,1 -k2,2n \
+  | mergeBed -s -c 4,6 -o distinct,distinct -i - \
+  | awk 'BEGIN{FS=OFS="\t"}{ gsub(/\|/,",",$4); print $1,$2,$3,$4,0,$5 }'
+}
+
+
+cmd_promact ()
+{
+  ### handle options
+  parallel=20
+  while getopts i:r:p: opt
+  do
+    case ${opt} in
+    i) infile=${OPTARG};;
+    r) ctss=${OPTARG};;
+    p) parallel=${OPTARG};;
+    *) usage;;
+    esac
+  done
+  if [ ! -n "${infile-}" ]; then usage; fi
+  if [ ! -n "${ctss-}" ]; then usage; fi
+  printf "### promact\n"  >&2
+
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+  SORT_OPT_BED="--batch-size=100 -k1,1 -k2,2n -k3,3n"
+
+  feature_activity ${infile} ${ctss} sense
+}
+
+
 cmd_knownpromoteractivity ()
 {
   promoterWindowHalf=500
@@ -2209,6 +2298,14 @@ case "${1:-}" in
   knownprom)
     shift;
     cmd_knownpromoteractivity "$@"
+    ;;
+  makeprom)
+    shift;
+    cmd_makeprom "$@"
+    ;;
+  promact)
+    shift;
+    cmd_promact "$@"
     ;;
   creact)
     shift;

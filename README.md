@@ -54,6 +54,8 @@ Subcommands
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
 * knownprom: Prepare promoter regions of known genes and assign their activity
+* makeprom : Build promoter regions of known genes (strand-aware)
+* promact  : Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
 * creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
 * link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
@@ -222,6 +224,36 @@ The transcription start of each gene is extended by promoterWindowHalf on both s
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
 The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
+
+
+## makeprom
+
+Build promoter regions of known genes (strand-aware)
+
+    ./CREate.sh makeprom \
+        -g gene.bed12.gz (BED12 gene models) \
+        -c chrom_sizes \
+        [-w promoterWindowHalf(default:500)] \
+    | gzip -c > promoter.bed.gz
+
+The TSS of each gene (strand-aware) is extended by promoterWindowHalf on both sides,
+and overlapping windows on the SAME strand are merged (opposite strands are kept
+separate). Output is BED6: chrom, start, end, gene(s) (with '|' replaced by ','),
+0, strand. No activity is assigned here; use promact to quantify.
+
+
+## promact
+
+Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
+
+    ./CREate.sh promact \
+        -i promoter.bed.gz (output of makeprom; gzip or plain) \
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \
+        [-p parallel(default:20)]
+
+For each promoter the same-strand (sense) CAGE is summed over [start,end] and
+normalized to TPM by the total of all CTSS counts (both strands) in the input.
+The output is the input BED6 with column 5 replaced by the activity (TPM).
 
 
 ## creact
