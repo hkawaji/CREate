@@ -276,8 +276,8 @@ input BED9 with column 5 replaced by the activity (TPM).
 Predict regulatory interactions between CREs and known promoters
 
     ./CREate.sh link \
-        -k knownpromoter (output of knownprom) \
-        -r cre (CREate call/classify output; 5th column = TPM) \
+        -k promoter-activity (output of promact; 5th column = activity TPM) \
+        -r cre-activity (output of creact; 5th column = activity TPM) \
         [-w windowSize(default:200000)] \
         [-a power_law_alpha(default:2.1)] \
         [-d pseudoCpm(default:0.01)] \
