@@ -73,7 +73,6 @@ Subcommands
 * filter   : Filter the regions
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
-* knownprom: Prepare promoter regions of known genes and assign their activity
 * makeprom : Build promoter regions of known genes (strand-aware)
 * promact  : Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
 * creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
@@ -229,22 +228,6 @@ Count reads belonging to the the divergently transcribed regions per sample
         -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
         -o out_prefix \\
         [-p parallel(default:20)]
-
-
-## knownprom
-
-Prepare promoter regions of known genes and assign their activity
-
-    $0 knownprom \\
-        -g gene.bed12.gz (BED12 gene models) \\
-        -r cre (CREate call/classify output; 5th column = TPM) \\
-        -c chrom_sizes \\
-        [-w promoterWindowHalf(default:500)]
-
-The transcription start of each gene is extended by promoterWindowHalf on both sides,
-overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
-promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
-The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
 
 
 ## makeprom
@@ -2052,43 +2035,6 @@ cmd_promact ()
 }
 
 
-cmd_knownpromoteractivity ()
-{
-  promoterWindowHalf=500
-
-  ### handle options
-  while getopts g:r:c:w: opt
-  do
-    case ${opt} in
-    g) gene=${OPTARG};;
-    r) cre=${OPTARG};;
-    c) chrom_sizes=${OPTARG};;
-    w) promoterWindowHalf=${OPTARG};;
-    *) usage;;
-    esac
-  done
-
-  if [ ! -n "${gene-}" ]; then usage; fi
-  if [ ! -n "${cre-}" ]; then usage; fi
-  if [ ! -n "${chrom_sizes-}" ]; then usage; fi
-
-  # cluster known promoters and assign their activities (strand agnostic)
-  gunzip -c ${gene} \
-  | awk 'BEGIN{OFS="\t"}{
-      chromStart = $2; if( $6 == "-") {chromStart = $3 - 1};
-      $2 = chromStart
-      $3 = chromStart + 1
-      print
-    }' \
-  | slopBed -i - -g ${chrom_sizes} -b ${promoterWindowHalf} \
-  | mergeBed -c 4 -o distinct -i - \
-  | intersectBed -wa -wb -a - -b ${cre} \
-  | sort -k1,1 -k2,2n -k3,3n -k4,4 \
-  | groupBy -g 1,2,3,4 -c 9 -o sum \
-  | awk 'BEGIN{FS=OFS="\t"}{gsub(/\|/,",",$4); print $0"\t."}'
-}
-
-
 cmd_link ()
 {
   windowSize=200000
@@ -2102,7 +2048,7 @@ cmd_link ()
   while getopts k:r:w:c:a:d:i:p: opt
   do
     case ${opt} in
-    k) knownpromoter=${OPTARG};;
+    k) prom_activity=${OPTARG};;
     r) cre=${OPTARG};;
     w) windowSize=${OPTARG};;
     a) power_law_alpha=${OPTARG};;
@@ -2113,14 +2059,14 @@ cmd_link ()
     esac
   done
 
-  if [ ! -n "${knownpromoter-}" ]; then usage; fi
+  if [ ! -n "${prom_activity-}" ]; then usage; fi
   if [ ! -n "${cre-}" ]; then usage; fi
 
   ### setup tmpdir
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
 
-  bedtools window -w ${windowSize} -a ${cre} -b ${knownpromoter} \
+  bedtools window -w ${windowSize} -a ${cre} -b ${prom_activity} \
   | awk 'BEGIN{OFS="\t"}
     function is_ovlp(c1,s1,e1,c2,s2,e2 ) {
       flag = "no"
@@ -2303,10 +2249,6 @@ case "${1:-}" in
   eachcount)
     shift;
     cmd_eachcount "$@"
-    ;;
-  knownprom)
-    shift;
-    cmd_knownpromoteractivity "$@"
     ;;
   makeprom)
     shift;

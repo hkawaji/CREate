@@ -53,7 +53,6 @@ Subcommands
 * filter   : Filter the regions
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
-* knownprom: Prepare promoter regions of known genes and assign their activity
 * makeprom : Build promoter regions of known genes (strand-aware)
 * promact  : Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
 * creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
@@ -208,22 +207,6 @@ Count reads belonging to the the divergently transcribed regions per sample
         -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \
         -o out_prefix \
         [-p parallel(default:20)]
-
-
-## knownprom
-
-Prepare promoter regions of known genes and assign their activity
-
-    ./CREate.sh knownprom \
-        -g gene.bed12.gz (BED12 gene models) \
-        -r cre (CREate call/classify output; 5th column = TPM) \
-        -c chrom_sizes \
-        [-w promoterWindowHalf(default:500)]
-
-The transcription start of each gene is extended by promoterWindowHalf on both sides,
-overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
-promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
-The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
 
 
 ## makeprom
