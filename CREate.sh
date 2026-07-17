@@ -690,6 +690,24 @@ ctssGzBed_to_TpmBg ()
 }
 
 
+# cre_divergent_region <fwd|rev>
+# From a KEY-prefixed BED9 on stdin (KEY chrom start end name score strand thickStart thickEnd ...),
+# emit the strand-specific extent of a divergent CRE as: chrom, start, end, KEY.
+#   fwd -> [thickStart, end]  (forward signal, right of the core)
+#   rev -> [start, thickEnd]  (reverse signal, left of the core)
+# Shared by feature_activity (divergent) and eachcount so the divergent
+# definition lives in one place.
+cre_divergent_region ()
+{
+  local side=$1
+  if [ "$side" = "fwd" ]; then
+    awk 'BEGIN{OFS="\t"}{print $2,$8,$4,$1}'
+  else
+    awk 'BEGIN{OFS="\t"}{print $2,$3,$9,$1}'
+  fi
+}
+
+
 # feature_activity <features_bed(.gz ok)> <ctss(.gz ok)> <sense|divergent>
 # Quantify the CAGE activity (TPM) of each feature from a single-sample CTSS,
 # and print the features with column 5 set to the activity. Requires ${tmpdir}
@@ -715,10 +733,10 @@ feature_activity ()
   # after the LN prefix: chrom=$2 start=$3 end=$4 (name=$5) score=$6 strand=$7 thickStart=$8 thickEnd=$9
 
   if [ "$mode" = "divergent" ]; then
-    awk 'BEGIN{OFS="\t"}{print $2,$8,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    cre_divergent_region fwd < ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
     | bedtools map -a - -b ${tmpdir}/fa.fwd.bg -c 4 -o sum -null 0 \
     | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.fwd.sum
-    awk 'BEGIN{OFS="\t"}{print $2,$3,$9,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    cre_divergent_region rev < ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
     | bedtools map -a - -b ${tmpdir}/fa.rev.bg -c 4 -o sum -null 0 \
     | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.rev.sum
     join -t "	" ${tmpdir}/fa.fwd.sum ${tmpdir}/fa.rev.sum \
@@ -1592,17 +1610,8 @@ cmd_eachcount ()
   ###
   ### prep regions (core + extended for forward or reverse)
   ###
-  cat ${tmpdir}/LN_infile.txt \
-  | awk 'BEGIN{OFS="\t"}{
-    chr=$2;start=$3;stop=$4;core_start=$8;core_stop=$9;name=$1
-    print chr, core_start, stop, name
-  }' > ${tmpdir}/fwd.bed
-
-  cat ${tmpdir}/LN_infile.txt \
-  | awk 'BEGIN{OFS="\t"}{
-    chr=$2;start=$3;stop=$4;core_start=$8;core_stop=$9;name=$1
-    print chr, start, core_stop, name
-  }' > ${tmpdir}/rev.bed
+  cre_divergent_region fwd < ${tmpdir}/LN_infile.txt > ${tmpdir}/fwd.bed
+  cre_divergent_region rev < ${tmpdir}/LN_infile.txt > ${tmpdir}/rev.bed
 
 
   ###
