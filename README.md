@@ -54,6 +54,7 @@ Subcommands
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
 * knownprom: Prepare promoter regions of known genes and assign their activity
+* creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
 * link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
 
@@ -221,6 +222,21 @@ The transcription start of each gene is extended by promoterWindowHalf on both s
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
 The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
+
+
+## creact
+
+Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
+
+    ./CREate.sh creact \
+        -i cre (CREate call/classify output, BED9 with core in thickStart/thickEnd) \
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \
+        [-p parallel(default:20)]
+
+For each CRE the sense/antisense CAGE is summed over its divergent extents
+(forward over [thickStart,end], reverse over [start,thickEnd]) and normalized to
+TPM by the total of all CTSS counts (both strands) in the input. The output is the
+input BED9 with column 5 replaced by the activity (TPM).
 
 
 ## link

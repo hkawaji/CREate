@@ -74,6 +74,7 @@ Subcommands
 * classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
 * eachcount: Count reads belonging to the the divergently transcribed regions per sample
 * knownprom: Prepare promoter regions of known genes and assign their activity
+* creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
 * link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
 
@@ -242,6 +243,21 @@ The transcription start of each gene is extended by promoterWindowHalf on both s
 overlapping promoters are merged, and the activity (5th column, TPM) of CREs within each
 promoter region is summed. Output is BED-like: chrom, start, end, gene(s), activity, strand('.').
 The '|' in gene names is replaced by ',' so the name is safe to embed downstream (see link).
+
+
+## creact
+
+Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
+
+    $0 creact \\
+        -i cre (CREate call/classify output, BED9 with core in thickStart/thickEnd) \\
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \\
+        [-p parallel(default:20)]
+
+For each CRE the sense/antisense CAGE is summed over its divergent extents
+(forward over [thickStart,end], reverse over [start,thickEnd]) and normalized to
+TPM by the total of all CTSS counts (both strands) in the input. The output is the
+input BED9 with column 5 replaced by the activity (TPM).
 
 
 ## link
@@ -639,6 +655,61 @@ ctssGzBed_to_TpmBg ()
   | ctssbed_to_bg $strand \
   | awk --assign total=$total \
       '{$4 = $4 * 1e6 / total ; printf "%s\t%d\t%d\t%.2f\n", $1, $2, $3, $4}'
+}
+
+
+# feature_activity <features_bed(.gz ok)> <ctss(.gz ok)> <sense|divergent>
+# Quantify the CAGE activity (TPM) of each feature from a single-sample CTSS,
+# and print the features with column 5 set to the activity. Requires ${tmpdir}
+# and ${SORT_OPT_BED}.
+#   sense     : features are stranded (BED6, strand in col6); sum same-strand CTSS over [start,end].
+#   divergent : features are CRE regions (BED9, core in col7/col8); sum fwd over
+#               [thickStart,end] + rev over [start,thickEnd] (as in call/eachcount).
+# TPM = (summed CTSS count) / (total of all CTSS counts, both strands) * 1e6.
+feature_activity ()
+{
+  local features=$1
+  local ctss=$2
+  local mode=$3
+
+  local total=$( gzip -cdf $ctss | awk '{tot += $5 * ($3 - $2)}END{print tot}' )
+
+  gzip -cdf $ctss | ctssbed_to_bg + > ${tmpdir}/fa.fwd.bg
+  gzip -cdf $ctss | ctssbed_to_bg - > ${tmpdir}/fa.rev.bg
+
+  gzip -cdf $features | grep -v '^#' \
+  | awk 'BEGIN{OFS="\t"}{printf "LN%012d\t%s\n", NR, $0}' \
+  > ${tmpdir}/fa.ln.txt
+  # after the LN prefix: chrom=$2 start=$3 end=$4 (name=$5) score=$6 strand=$7 thickStart=$8 thickEnd=$9
+
+  if [ "$mode" = "divergent" ]; then
+    awk 'BEGIN{OFS="\t"}{print $2,$8,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.fwd.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.fwd.sum
+    awk 'BEGIN{OFS="\t"}{print $2,$3,$9,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.rev.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.rev.sum
+    join -t "	" ${tmpdir}/fa.fwd.sum ${tmpdir}/fa.rev.sum \
+    | awk 'BEGIN{OFS="\t"}{print $1, $2+$3}' | sort -k1,1 > ${tmpdir}/fa.count
+  else
+    awk 'BEGIN{OFS="\t"}$7=="+"{print $2,$3,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.fwd.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' > ${tmpdir}/fa.count.raw
+    awk 'BEGIN{OFS="\t"}$7=="-"{print $2,$3,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.rev.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' >> ${tmpdir}/fa.count.raw
+    sort -k1,1 ${tmpdir}/fa.count.raw > ${tmpdir}/fa.count
+  fi
+
+  sort -k1,1 ${tmpdir}/fa.ln.txt \
+  | join -t "	" - ${tmpdir}/fa.count \
+  | awk --assign total=$total 'BEGIN{OFS="\t"}{
+      tpm = $NF * 1e6 / total
+      $6 = sprintf("%.4f", tpm)
+      out=$2
+      for(i=3;i<=NF-1;i++){ out = out OFS $i }
+      print out
+    }'
 }
 
 
@@ -1858,6 +1929,31 @@ cmd_classify ()
 }
 
 
+cmd_creact ()
+{
+  ### handle options
+  parallel=20
+  while getopts i:r:p: opt
+  do
+    case ${opt} in
+    i) infile=${OPTARG};;
+    r) ctss=${OPTARG};;
+    p) parallel=${OPTARG};;
+    *) usage;;
+    esac
+  done
+  if [ ! -n "${infile-}" ]; then usage; fi
+  if [ ! -n "${ctss-}" ]; then usage; fi
+  printf "### creact\n"  >&2
+
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+  SORT_OPT_BED="--batch-size=100 -k1,1 -k2,2n -k3,3n"
+
+  feature_activity ${infile} ${ctss} divergent
+}
+
+
 cmd_knownpromoteractivity ()
 {
   promoterWindowHalf=500
@@ -2113,6 +2209,10 @@ case "${1:-}" in
   knownprom)
     shift;
     cmd_knownpromoteractivity "$@"
+    ;;
+  creact)
+    shift;
+    cmd_creact "$@"
     ;;
   link)
     shift;
