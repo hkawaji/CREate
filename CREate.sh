@@ -286,7 +286,8 @@ Predict regulatory interactions between CREs and known promoters
         [-a power_law_alpha(default:2.1)] \\
         [-d pseudoCpm(default:0.01)] \\
         [-i scoreCutoffAci(default:1)] \\
-        [-p promCutoff(default:1)]
+        [-p promCutoff(default:1)] \\
+        [-s scoreField(default:ABC; ABC or ACI)]
 
 CRE-promoter pairs within windowSize are considered (self-overlapping pairs are excluded).
 For each pair, the estimated contact follows a power law of genomic distance
@@ -295,7 +296,8 @@ ACI (Activity-Contact Index) = estimatedContacts x CRE_activity x promoter_activ
 that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter.
 
 The output is BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end),
-name, score(=ABC), CRE strand, promoter strand. The 'name' (7th column) is a flat, self-
+name, score, CRE strand, promoter strand. The score (8th column) is ABC by default, or ACI
+with -s ACI (both are always kept in the name). The 'name' (7th column) is a flat, self-
 describing 'key:value|key:value|...' string (CREate convention) in three namespaces:
   src_*  : source CRE fields inherited from its name (src_id, src_tpm, src_class, ...)
   tgt_id : target promoter/gene name
@@ -2043,9 +2045,10 @@ cmd_link ()
   #scoreCutoffAci=-Inf
   scoreCutoffAci=1
   promCutoff=1
+  score_field=ABC
 
   ### handle options
-  while getopts k:r:w:c:a:d:i:p: opt
+  while getopts k:r:w:c:a:d:i:p:s: opt
   do
     case ${opt} in
     k) prom_activity=${OPTARG};;
@@ -2055,12 +2058,17 @@ cmd_link ()
     d) pseudoCpm=${OPTARG};;
     i) scoreCutoffAci=${OPTARG};;
     p) promCutoff=${OPTARG};;
+    s) score_field=${OPTARG};;
     *) usage;;
     esac
   done
 
   if [ ! -n "${prom_activity-}" ]; then usage; fi
   if [ ! -n "${cre-}" ]; then usage; fi
+  if [ "${score_field}" != "ABC" ] && [ "${score_field}" != "ACI" ]; then
+    echo "Error: -s must be ABC or ACI (got '${score_field}')" >&2
+    usage
+  fi
 
   ### setup tmpdir
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
@@ -2131,7 +2139,7 @@ cmd_link ()
       "|link_ACI:"    , signif(ACI,4),
       "|link_ABC:"    , signif(ABC,4)
     ) ) %>%
-    mutate( newScore = signif(ABC,4) ) %>%
+    mutate( newScore = signif(${score_field},4) ) %>%
     ungroup() %>%
     select(
       a.chrom, a.chromStart, a.chromEnd,
