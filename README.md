@@ -270,7 +270,7 @@ Predict regulatory interactions between CREs and known promoters
 CRE-promoter pairs within windowSize are considered (self-overlapping pairs are excluded).
 For each pair, the estimated contact follows a power law of genomic distance
 (alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
-ACI (Active Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
+ACI (Activity-Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
 that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter.
 
 The output is BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end),
