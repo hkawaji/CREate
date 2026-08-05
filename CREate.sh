@@ -18,26 +18,37 @@ VERSION="0.2.2"
 ### define error message
 usage()
 {
-  cat <<EOF
 
-CREate version ${VERSION}
+  printf '\nCREate version %s\n' "${VERSION}"
 
-CREate is a software tool designed to identify cis-regulatory elements by analyzing transcription
-initiation activity measured by CAGE (Cap Analysis of Gene Expression). Cis-regulatory elements,
-such as promoters and enhancers, are characterized by active transcription and typically exhibit 
-a divergent architecture. For example, promoters that produce mRNA and long noncoding RNA often 
-generate upstream antisense RNA (uaRNA), while enhancers are frequently associated with bidirectional
-transcription, although unidirectional patterns can also occur. Divergent transcription is thus 
-a common hallmark of both promoters and enhancers.
+  ### The usage text is a quoted heredoc, so nothing in it is expanded and the
+  ### backslashes that end the option lines survive as written.
+  cat <<'EOF'
 
-Based on transcription initiation profiles, CREate detects genomic regions exhibiting non-convergent
-transcription and classifies them as candidate cis-regulatory elements. Given a genomic position N and 
-the transcription initiation profiles in both the sense and antisense directions, N is classified as 
-divergent if the following condition is satisfied:
+CREate is a software tool designed to identify cis-regulatory elements by
+analyzing transcription initiation activity measured by CAGE (Cap Analysis of
+Gene Expression). It also predicts the target genes of the CREs, based on the
+ABC (Activity-By-Contact) model, adapted to take the level of transcription
+as the activity term.
 
 
-    [ left_rev + right_fwd ] > [ left_fwd + right_rev ] 
-  
+Cis-regulatory elements, such as promoters and enhancers, are characterized by
+active transcription and typically exhibit a divergent architecture. For
+example, promoters that produce mRNA and long noncoding RNA often generate
+upstream antisense RNA (uaRNA) or PROMoter uPstream Transcripts (PROMPTs),
+while enhancers are frequently associated with bidirectional transcription,
+although unidirectional patterns can also occur. Divergent transcription is
+thus a common hallmark of both promoters and enhancers.
+
+Based on transcription initiation profiles, CREate detects genomic regions
+exhibiting non-convergent transcription and classifies them as candidate
+cis-regulatory elements. Given a genomic position N and the transcription
+initiation profiles in both the sense and antisense directions, N is classified
+as divergent if the following condition is satisfied:
+
+
+    [ left_rev + right_fwd ] > [ left_fwd + right_rev ]
+
 where
 
                      left        right
@@ -46,12 +57,18 @@ where
                -------------[N]----------------
       reverse    (left_rev)     (right_rev)
 
+
+
+
+
+
 Requirements
 
 * gawk (GNU awk; CREate uses --assign and 3-argument match(), tested in v5.x)
 * samtools (https://github.com/samtools/samtools , tested in version 1.9)
 * bedtools (https://github.com/arq5x/bedtools2 , tested in v2.29.2)
-* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425; provides bedGraphToBigWig, bigWigAverageOverBed, bigWigMerge, bigWigToBedGraph)
+* jksrc (http://hgdownload.cse.ucsc.edu/admin/ , tested in v425), which provides
+  bedGraphToBigWig, bigWigAverageOverBed, bigWigMerge and bigWigToBedGraph
 * R (https://www.r-project.org/ , tested in v4.0.2)
 * tidyverse (https://www.tidyverse.org/ , tested in v1.3.0)
 * (STAR, to generate the input alignment)
@@ -60,78 +77,88 @@ Requirements
 
 ## Usage
 
-    $0 <subcommand> <args>
+    CREate.sh <subcommand> <args>
 
 
 
 Subcommands
 
-* bam2ctss : Generate CTSS (CAGE tag starting site) count file based on BAM alignment file
-* run      : Run the peak call steps (total, call, filter, classify, eachcount) at once
-* total    : Generate total CTSS count file based on multiple CTSS BED files
-* call     : Call divergently transcribed regions as candidates of cis-regulatory elements 
+* bam2ctss : Generate a CTSS (CAGE tag starting site) count file from a BAM
+* run      : Run the peak call steps at once (total, call, filter, classify,
+             eachcount)
+* total    : Generate a total CTSS count file from multiple CTSS BED files
+* call     : Call divergently transcribed regions as candidate cis-regulatory
+             elements
 * filter   : Filter the regions
-* classify : Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
-* eachcount: Count reads belonging to the the divergently transcribed regions per sample
+* classify : Classify the regions as PLA (promoter level activity) or ELA
+             (enhancer level activity)
+* eachcount: Count reads belonging to the divergently transcribed regions per
+             sample
 * makeprom : Build promoter regions of known genes (strand-aware)
-* promact  : Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
-* creact   : Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
+* promact  : Quantify promoter activity (TPM, sense strand) from one CTSS file
+* creact   : Quantify cis-element (CRE) activity (TPM) from one CTSS file
+* hicprep  : Extract the contact values link needs from a Hi-C contact file
 * link     : Predict regulatory interactions between CREs and known promoters
 * version  : Print the CREate version
 
 
 ## bam2ctss
 
-Generate CTSS (CAGE tag starting site) count file in BED format, from BAM alignment file
+Generate a CTSS (CAGE tag starting site) count file in BED format, from a BAM
+alignment file
 
-    $0 bam2ctss -i infile.star.bam -g genome.fa \\
-        [-q mapQ (default:20)] \\
-        [-p parallel (default:8)] \\
-        [-w filter_window (default:20)] \\
-        [-b filter_target_base (default:G; otheriwse N)] \\
-        [-r ratio_Gaddition (default:0.89)] \\
+    CREate.sh bam2ctss -i infile.star.bam -g genome.fa \
+        [-q mapQ (default:20)] \
+        [-p parallel (default:8)] \
+        [-w filter_window (default:20)] \
+        [-b filter_target_base (default:G; otherwise N)] \
+        [-r ratio_Gaddition (default:0.89)] \
         [-f full_set_of_intermediate_files (default: null)]
 
-This subcommand counts capped RNA 5-ends at single-nucleotide resolution based on
-CAGE (Cap Analysis of Gene Expression) read alignments. It selectively considers
-reads that start with a genomically unencoded G (guanine), a hallmark of high-confidence
-capped 5-ends (Science. 385(6704):eadd8394, 2024; Genome Res. 24(4):708-17, 2014).
-However, accurately identifying such unencoded Gs involves technical challenges,
-especially in regions where the genome itself also contains Gs near transcription start sites.
+This subcommand counts capped RNA 5-ends at single-nucleotide resolution based
+on CAGE (Cap Analysis of Gene Expression) read alignments. It selectively
+considers reads that start with a genomically unencoded G (guanine), a hallmark
+of high-confidence capped 5-ends (Science. 385(6704):eadd8394, 2024; Genome Res.
+24(4):708-17, 2014). However, accurately identifying such unencoded Gs involves
+technical challenges, especially in regions where the genome itself also
+contains Gs near transcription start sites.
 
-Determining whether a read carries an unencoded G can be difficult when the genomic
-sequence immediately upstream (one nucleotide before the true TSS) also harbors G. 
-To resolve this ambiguity, the subcommand examines the surrounding sequence within
-a defined window to determine whether such reads should be retained or discarded.
+Determining whether a read carries an unencoded G can be difficult when the
+genomic sequence immediately upstream (one nucleotide before the true TSS) also
+harbors G. To resolve this ambiguity, the subcommand examines the surrounding
+sequence within a defined window to determine whether such reads should be
+retained or discarded.
 
-Accurate identification of transcription start sites (TSSs) within G-stretch regions
-is further complicated by ambiguity over whether the 5-end guanine is genomically encoded or 
-the result of post-transcriptional G-addition. the subcommand applies a correction strategy 
-by shifting a proportion of reads based on an assumed G-addition rate.
+Accurate identification of transcription start sites (TSSs) within G-stretch
+regions is further complicated by ambiguity over whether the 5-end guanine is
+genomically encoded or the result of post-transcriptional G-addition. The
+subcommand applies a correction strategy by shifting a proportion of reads based
+on an assumed G-addition rate.
 
-Note: The input file must be a BAM file generated by STAR (https://github.com/alexdobin/STAR) 
-with the --alignEndsType Local option. This alignment mode ensures that mismatched ends,
-particularly 5-ends, are treated as soft clips through local alignment.
+Note: The input file must be a BAM file generated by STAR
+(https://github.com/alexdobin/STAR) with the --alignEndsType Local option. This
+alignment mode ensures that mismatched ends, particularly 5-ends, are treated as
+soft clips through local alignment.
 
 
 ## run
 
 Run the peak call steps (total, call, filter, classify, eachcount) at once
 
-    $0 run  \\
-        -i infiles(comma separated) \\
-        -c chrom_sizes \\
-        -o out_prefix \\
-        [-w window_size(default:200)] \\
-        [-l min_length] \\
-        [-n min_counts] \\
-        [-t min_tpm] \\
-        [-e PLA_or_ELA_threshold_in_TPM(default: 2)] \\
-        [-p parallel(default:20)] \\
-        [-z compress_decompress_program(default:gzip; zstd is recommended if available)]
+    CREate.sh run  \
+        -i infiles(comma separated) \
+        -c chrom_sizes \
+        -o out_prefix \
+        [-w window_size(default:200)] \
+        [-l min_length] \
+        [-n min_counts] \
+        [-t min_tpm] \
+        [-e PLA_or_ELA_threshold_in_TPM(default: 2)] \
+        [-p parallel(default:20)] \
+        [-z compress_decompress_program(default:gzip; zstd is recommended)]
 
-Note that each of the input files should be BED-formatted CTSS profiles with gzip (*.ctss.bed.gz).
-The resulting files are:
+Note that each of the input files should be a BED-formatted CTSS profile with
+gzip (*.ctss.bed.gz). The resulting files are:
 
 * out_prefix_param.txt
 * out_prefix_{total|max}.ctss.{bed.gz|fwd.bw|rev.bw}
@@ -146,12 +173,12 @@ The resulting files are:
 
 ## total
 
-Generate total CTSS count file based on multiple CTSS BED files
+Generate a total CTSS count file from multiple CTSS BED files
 
-    $0 total \\
-        -i infiles(comma separated) \\
-        -c chrom_sizes \\
-        -o out_prefix \\
+    CREate.sh total \
+        -i infiles(comma separated) \
+        -c chrom_sizes \
+        -o out_prefix \
         [-p parallel(default:20)]
 
 which produces the following files:
@@ -162,71 +189,72 @@ which produces the following files:
 
 ## call
 
-Call divergently transcribed regions as candidates of cis-regulatory elements 
+Call divergently transcribed regions as candidate cis-regulatory elements
 
-    $0 call \\
-        -i infile.ctss.bed.gz \\
-        -c chrom_sizes \\
-        [-w window_size(default:200)] \\
-        [-m outfileMax.ctss.bed.gz] \\
-        [-p parallel(default:20)] \\
-        [-z compress_decompress_program(default:gzip; zstd is recommended if available)] \\
+    CREate.sh call \
+        -i infile.ctss.bed.gz \
+        -c chrom_sizes \
+        [-w window_size(default:200)] \
+        [-m outfileMax.ctss.bed.gz] \
+        [-p parallel(default:20)] \
+        [-z compress_decompress_program(default:gzip; zstd is recommended)] \
     | gzip -c > output.bed.gz
 
 
-The output file is formatted in BED9, where the thickStart/thickEnd specify 'core' region which is
-predominantly divergent('#') and the start/end specify the region where signals considered ('+'). 
-The 'core' regions do not overlap each other, while the signal considered region may. The 5th (score)
-column indicates CRE activity based on TPM (transcripts per million).
+The output file is formatted in BED9, where the thickStart/thickEnd specify the
+'core' region which is predominantly divergent ('#') and the start/end specify
+the region where signals are considered ('+'). The 'core' regions do not overlap
+each other, while the signal considered region may. The 5th (score) column
+indicates CRE activity based on TPM (transcripts per million).
 
             ffffffffffff
        +++++########++++
        rrrrrrrrrrrrr
 
-Forward signals are indicated in 'f' and reverse signals in 'r'. The 'core' regions are
-non-overlapping, whereas the signal-considered regions may overlap.
+Forward signals are indicated in 'f' and reverse signals in 'r'.
 
 
 ## filter
 
 Filter the regions
 
-    gunzip -c output.bed.gz \\
-    | $0 filter \\
-        [-D max_directionality(default:1)] \\
-        [-d min_directionality(default:0)] \\
-        [-C max_counts(default:-1)] \\
-        [-c min_counts(default:4)] \\
-        [-T max_tpm(default:-1)] \\
-        [-t min_tpm(default:0)] \\
-        [-e min_counts_in_each_strand(default:0)] \\
-        [-x min_ctssMax(default:0)] \\
-        [-y min_ctssMax_in_each_strand(default:0)] \\
-        [-L max_length(default:-1)] \\
-        [-l min_length(default:5)] \\
+    gunzip -c output.bed.gz \
+    | CREate.sh filter \
+        [-D max_directionality(default:1)] \
+        [-d min_directionality(default:0)] \
+        [-C max_counts(default:-1)] \
+        [-c min_counts(default:4)] \
+        [-T max_tpm(default:-1)] \
+        [-t min_tpm(default:0)] \
+        [-e min_counts_in_each_strand(default:0)] \
+        [-x min_ctssMax(default:0)] \
+        [-y min_ctssMax_in_each_strand(default:0)] \
+        [-L max_length(default:-1)] \
+        [-l min_length(default:5)] \
         [-v] (for invert match, such as "grep -v")
 
-Filtering based on expression (-t TPM) is recommended, 
-where 0.05 and 0.5 are reasonable for CAGE.
+Filtering based on expression (-t TPM) is recommended, where 0.05 and 0.5 are
+reasonable for CAGE.
 
 
 ## classify
 
-Classify the regions to PLA (promoter level activity) or ELA (enhancer level activity)
+Classify the regions as PLA (promoter level activity) or ELA (enhancer level
+activity)
 
-    gunzip -c output.bed.gz \\
-    | $0 classify \\
+    gunzip -c output.bed.gz \
+    | CREate.sh classify \
         [-e PLA_or_ELA_threshold_in_TPM (default: 2)]
 
 
 ## eachcount
 
-Count reads belonging to the the divergently transcribed regions per sample
+Count reads belonging to the divergently transcribed regions per sample
 
-    $0 eachcount \\
-        -i divergently_transcribed_region.bed.gz  (BED9 format) \\
-        -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \\
-        -o out_prefix \\
+    CREate.sh eachcount \
+        -i divergently_transcribed_region.bed.gz  (BED9 format) \
+        -e infile_each.ctss.bw.tar (archive of bigWig files for each strand) \
+        -o out_prefix \
         [-p parallel(default:20)]
 
 
@@ -234,75 +262,152 @@ Count reads belonging to the the divergently transcribed regions per sample
 
 Build promoter regions of known genes (strand-aware)
 
-    $0 makeprom \\
-        -g gene.bed12.gz (BED12 gene models) \\
-        -c chrom_sizes \\
-        [-w promoterWindowHalf(default:500)] \\
+    CREate.sh makeprom \
+        -g gene.bed12.gz (BED12 gene models) \
+        -c chrom_sizes \
+        [-w promoterWindowHalf(default:500)] \
     | gzip -c > promoter.bed.gz
 
-The TSS of each gene (strand-aware) is extended by promoterWindowHalf on both sides,
-and overlapping windows on the SAME strand are merged (opposite strands are kept
-separate). Output is BED6: chrom, start, end, gene(s) (with '|' replaced by ','),
-0, strand. No activity is assigned here; use promact to quantify.
+The TSS of each gene (strand-aware) is extended by promoterWindowHalf on both
+sides, and overlapping windows on the SAME strand are merged (opposite strands
+are kept separate). Output is BED6: chrom, start, end, gene(s) (with '|'
+replaced by ','), 0, strand. No activity is assigned here; use promact to
+quantify.
 
 
 ## promact
 
 Quantify promoter activity (TPM, sense strand) from a single-sample CTSS
 
-    $0 promact \\
-        -i promoter.bed.gz (output of makeprom; gzip or plain) \\
-        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \\
+    CREate.sh promact \
+        -i promoter.bed.gz (output of makeprom; gzip or plain) \
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \
         [-p parallel(default:20)]
 
 For each promoter the same-strand (sense) CAGE is summed over [start,end] and
 normalized to TPM by the total of all CTSS counts (both strands) in the input.
-The output is the input BED6 with column 5 replaced by the activity (TPM).
+The output is the input BED6 with column 5 replaced by the activity (TPM). The
+input needs at least 6 columns, since the strand decides which strand is sense.
 
 
 ## creact
 
 Quantify cis-element (CRE) activity (TPM) from a single-sample CTSS
 
-    $0 creact \\
-        -i cre (CREate call/classify output, BED9 with core in thickStart/thickEnd) \\
-        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \\
+    CREate.sh creact \
+        -i cre (call/classify output, BED9 with core in thickStart/thickEnd) \
+        -r ctss.bed.gz (single-sample CTSS; gzip or plain) \
+        [-m mode(default:divergent; divergent or whole)] \
         [-p parallel(default:20)]
 
 For each CRE the sense/antisense CAGE is summed over its divergent extents
 (forward over [thickStart,end], reverse over [start,thickEnd]) and normalized to
-TPM by the total of all CTSS counts (both strands) in the input. The output is the
-input BED9 with column 5 replaced by the activity (TPM).
+TPM by the total of all CTSS counts (both strands) in the input. The output is
+the input BED9 with column 5 replaced by the activity (TPM).
+
+-m whole sums both strands over the whole feature [start,end] and ignores
+thickStart/thickEnd, for regions defined outside CREate that carry no called
+core. It therefore takes as few as 4 columns, whereas the default (-m divergent)
+needs the 8 that carry thickStart/thickEnd. A 4-column input gains the activity
+as a new column 5.
+
+
+## hicprep
+
+Extract the contact values required by 'link' from a Hi-C contact file
+
+    CREate.sh hicprep \
+        -i contacts.bed.gz (chrom, bin1, bin2, contact; e.g. ENCFF134PUN) \
+        -k promoter.bed (output of makeprom; gzip or plain) \
+        [-r resolution(default:auto, detected from the bin coordinates)] \
+        [-w maxDistance(default:5000000)] \
+        [-o distanceProfile.tsv] \
+    | gzip -c > contacts.prom.tsv.gz
+
+The Hi-C file must already be coverage-normalized (KR or SCALE).
+As only a small chunk of the Hi-C data is needed to predict links between
+CRE and promoters, this subcommand strips a large Hi-C dataset into a small
+table containing pairs that touch a promoter bin, and records in the header
+the additional information required downstream (so that link needs nothing
+but the file itself):
+
+    #resolution=5000
+    #gamma=0.986946
+    #scale=5.029419
+    #fitDistances=1000
+    #fitR2=0.996486
+    #recordedFraction=0.8060
+
+gamma and scale are the slope and intercept of contact against distance in
+log-log space, fitted on this file. fitDistances and fitR2 report how many
+distances entered the fit and how well it held. recordedFraction is the share
+of possible bin pairs the file actually records, which link uses to decide
+whether dropping the distance expectation (-N) is safe. With -o, the
+distance profile is written as well: distance, sum_contact, n_observed,
+n_expected (all bin pairs possible at that distance, recorded or not).
 
 
 ## link
 
 Predict regulatory interactions between CREs and known promoters
 
-    $0 link \\
-        -k promoter-activity (output of promact; 5th column = activity TPM) \\
-        -r cre-activity (output of creact; 5th column = activity TPM) \\
-        [-w windowSize(default:200000)] \\
-        [-a power_law_alpha(default:2.1)] \\
-        [-d pseudoCpm(default:0.01)] \\
-        [-i scoreCutoffAci(default:1)] \\
-        [-p promCutoff(default:1)] \\
-        [-s scoreField(default:ABC; ABC or ACI)]
+    CREate.sh link \
+        -k promoterActivity.bed.gz (output of promact) \
+        -r creActivity.bed.gz (output of creact) \
+        [-w windowSizeForLinking(default:1000000)] \
+        [-s scoreType(default:ABC; ABC or ACI)] \
+        [-S scoreCutoff(default:0.001 for ABC, 1 for ACI)] \
+        [-p promTpmCutoffForLinking(default:1)] \
+        [-d pseudoCpm(default:0.001)] \
+        [-b creActivityExponent(default:0.2)] \
+        [-B promoterActivityExponent(default:1.0)] \
+        [-a powerLawAlpha(default:1.0)] \
+        [-f distanceFloor(default:5000)] \
+        [-i contacts.tsv.gz (output of hicprep); \
+            estimated contact based on power-law is used if not specified] \
+        [-N] (use the measured contact alone, without the distance expectation \
+            included in the contacts.tsv.gz) \
+        [-O categoryTypeIfOverlapping(default:promoter; promoter or cre)] \
+        [-W windowSizeForDenominator(default:5000000)] \
+        [-t linkTargetRegions.bed.gz(default: the same file to -r)]
 
-CRE-promoter pairs within windowSize are considered (self-overlapping pairs are excluded).
-For each pair, the estimated contact follows a power law of genomic distance
-(alpha=2.1 for open chromatin; Pombo and Nicodemi, Transcription 2014, PMID:25764220), and
-ACI (Activity-Contact Index) = estimatedContacts x CRE_activity x promoter_activity, scaled so
-that a 1cpm-1cpm pair at 100kb equals 1. ABC is ACI normalized per promoter.
+For each pair of CRE and promoter, ACI (activity contact index) is calculated:
 
-The output is BEDPE-like (10 columns): CRE(chrom,start,end), promoter(chrom,start,end),
-name, score, CRE strand, promoter strand. The score (8th column) is ABC by default, or ACI
-with -s ACI (both are always kept in the name). The 'name' (7th column) is a flat, self-
-describing 'key:value|key:value|...' string (CREate convention) in three namespaces:
-  src_*  : source CRE fields inherited from its name (src_id, src_tpm, src_class, ...)
+    ACI = (creActivity + pseudoCpm)^creActivityExponent x (dist_eff/100kb)^-alpha
+
+where dist_eff = max(|CRE midpoint - promoter midpoint|, distanceFloor). ACI is
+scaled so that a 1cpm CRE at 100kb equals 1. ABC is ACI normalized per target
+promoter. The denominator sums ACI of neighboring promoters (including the
+target promoter itself) and the CREs overlapping none of them. -O decides which
+of the two is used when a promoter and a CRE overlap.
+
+The output is BEDPE-like (10 columns): CRE (chrom, start, end), promoter
+(chrom, start, end), name, score, CRE strand, promoter strand. Both scores
+(ABC and ACI) are always kept in the name column. The name (7th column) is
+a flat 'key:value|key:value|...' string in three namespaces:
+
+  src_*  : source CRE fields inherited from its name (src_id, src_tpm, ...)
   tgt_id : target promoter/gene name
-  link_* : link_dist(Mb), link_estCnt, link_expCre, link_expProm, link_ACI, link_ABC
-No value contains '|' or ':' (names are sanitized), so it parses by splitting on '|' then ':'.
+  link_* : link_dist(Mb; raw, before flooring), link_estCnt (uses dist_eff),
+           link_expCre, link_expProm, link_ACI, link_ABC
+
+With -i the contact term becomes
+
+    contact = [ powerlaw(dist_eff) + measured ] / ( 2 * powerlaw(100kb) )
+
+with the bin size, gamma and scale read from the header hicprep wrote, so the
+power law is the one fitted to that same file. It is the expected contact at a
+distance, so a pair with nothing recorded keeps its distance ranking instead of
+collapsing, and a pair carrying the contact typical for its distance reads 1, as
+it does without -i. -N drops that expectation, leaving
+
+    contact = measured / powerlaw(100kb).
+
+What decides whether to use it is coverage, not the kind of Hi-C: two thirds
+of pairs go unrecorded in a single intact Hi-C experiment and need the floor,
+while an average over many leaves only a few percent. hicprep reports
+recordedFraction for exactly this decision, and link warns if -N is used below
+0.9.
 
 
 ## Author
@@ -700,6 +805,7 @@ cre_divergent_region ()
 #   sense     : features are stranded (BED6, strand in col6); sum same-strand CTSS over [start,end].
 #   divergent : features are CRE regions (BED9, core in col7/col8); sum fwd over
 #               [thickStart,end] + rev over [start,thickEnd] (as in call/eachcount).
+#   whole     : features are CRE regions (BED4 or more); sum fwd + rev over [start,end].
 # TPM = (summed CTSS count) / (total of all CTSS counts, both strands) * 1e6.
 feature_activity ()
 {
@@ -717,11 +823,35 @@ feature_activity ()
   > ${tmpdir}/fa.ln.txt
   # after the LN prefix: chrom=$2 start=$3 end=$4 (name=$5) score=$6 strand=$7 thickStart=$8 thickEnd=$9
 
+  ### Each mode reads a different set of columns, and a too-short input would
+  ### otherwise be measured over an empty extent and reported as zero activity.
+  local ncol=$( awk 'NR==1{print NF - 1; exit}END{if(NR==0)print 0}' ${tmpdir}/fa.ln.txt )
+  local mincol needs
+  case ${mode} in
+  divergent) mincol=8; needs="thickStart/thickEnd";;
+  whole)     mincol=4; needs="chrom/start/end/name";;
+  *)         mincol=6; needs="strand";;
+  esac
+
+  if [ "${ncol}" -lt "${mincol}" ]; then
+    echo "Error: ${features} has ${ncol} columns; ${mode} needs at least ${mincol} (${needs})" >&2
+    exit 1
+  fi
+
   if [ "$mode" = "divergent" ]; then
     cre_divergent_region fwd < ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
     | bedtools map -a - -b ${tmpdir}/fa.fwd.bg -c 4 -o sum -null 0 \
     | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.fwd.sum
     cre_divergent_region rev < ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.rev.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.rev.sum
+    join -t "	" ${tmpdir}/fa.fwd.sum ${tmpdir}/fa.rev.sum \
+    | awk 'BEGIN{OFS="\t"}{print $1, $2+$3}' | sort -k1,1 > ${tmpdir}/fa.count
+  elif [ "$mode" = "whole" ]; then
+    awk 'BEGIN{OFS="\t"}{print $2,$3,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
+    | bedtools map -a - -b ${tmpdir}/fa.fwd.bg -c 4 -o sum -null 0 \
+    | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.fwd.sum
+    awk 'BEGIN{OFS="\t"}{print $2,$3,$4,$1}' ${tmpdir}/fa.ln.txt | sort $SORT_OPT_BED \
     | bedtools map -a - -b ${tmpdir}/fa.rev.bg -c 4 -o sum -null 0 \
     | awk 'BEGIN{OFS="\t"}{print $4,$5}' | sort -k1,1 > ${tmpdir}/fa.rev.sum
     join -t "	" ${tmpdir}/fa.fwd.sum ${tmpdir}/fa.rev.sum \
@@ -739,10 +869,15 @@ feature_activity ()
   sort -k1,1 ${tmpdir}/fa.ln.txt \
   | join -t "	" - ${tmpdir}/fa.count \
   | awk --assign total=$total 'BEGIN{OFS="\t"}{
+      ### $1 is the LN key and $NF the count, so the input columns are $2..$(NF-1)
+      ### and input column 5 -- the score -- is $6. A 4-column input has no score
+      ### column, so the activity is appended as a new column 5.
       tpm = $NF * 1e6 / total
+      ncol = NF - 2
+      if (ncol < 5) { ncol = 5 }
       $6 = sprintf("%.4f", tpm)
       out=$2
-      for(i=3;i<=NF-1;i++){ out = out OFS $i }
+      for(i=3;i<=ncol+1;i++){ out = out OFS $i }
       print out
     }'
 }
@@ -1959,24 +2094,30 @@ cmd_creact ()
 {
   ### handle options
   parallel=20
-  while getopts i:r:p: opt
+  mode=divergent
+  while getopts i:r:p:m: opt
   do
     case ${opt} in
     i) infile=${OPTARG};;
     r) ctss=${OPTARG};;
     p) parallel=${OPTARG};;
+    m) mode=${OPTARG};;
     *) usage;;
     esac
   done
   if [ ! -n "${infile-}" ]; then usage; fi
   if [ ! -n "${ctss-}" ]; then usage; fi
+  if [ "${mode}" != "divergent" ] && [ "${mode}" != "whole" ]; then
+    echo "Error: -m must be divergent or whole (got '${mode}')" >&2
+    usage
+  fi
   printf "### creact\n"  >&2
 
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
   SORT_OPT_BED="--batch-size=100 -k1,1 -k2,2n -k3,3n"
 
-  feature_activity ${infile} ${ctss} divergent
+  feature_activity ${infile} ${ctss} ${mode}
 }
 
 
@@ -2037,26 +2178,203 @@ cmd_promact ()
 }
 
 
-cmd_link ()
+cmd_hicprep ()
 {
-  windowSize=200000
-  power_law_alpha=2.1
-  pseudoCpm=0.01
-  #scoreCutoffAci=-Inf
-  scoreCutoffAci=1
-  promCutoff=1
-  score_field=ABC
+  resolution=auto
+  maxDistance=5000000
+  profileMax=10000000
+  detectRows=200000
 
   ### handle options
-  while getopts k:r:w:c:a:d:i:p:s: opt
+  while getopts i:k:r:w:o: opt
+  do
+    case ${opt} in
+    i) hic=${OPTARG};;
+    k) promoter=${OPTARG};;
+    r) resolution=${OPTARG};;
+    w) maxDistance=${OPTARG};;
+    o) profile=${OPTARG};;
+    *) usage;;
+    esac
+  done
+
+  if [ ! -n "${hic-}" ]; then usage; fi
+  if [ ! -n "${promoter-}" ]; then usage; fi
+
+  ### setup tmpdir
+  tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
+  trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
+
+  printf "### hicprep\n" >&2
+
+  ### Bin size, taken from the data: every bin coordinate is a multiple of it, so
+  ### their greatest common divisor recovers it. Getting this wrong would put the
+  ### promoter bins on a grid the contact file does not use, and the extraction
+  ### would come back empty rather than wrong, but it is not worth the risk.
+  if [ "${resolution}" = "auto" ]; then
+    resolution=$(zcat -f ${hic} | head -n ${detectRows} \
+      | awk 'function gcd(a,b,  t){ while (b) { t = b; b = a % b; a = t } return a }
+             $1 ~ /^#/ { next }
+             { g = gcd(g, $2); g = gcd(g, $3) }
+             END{ print g+0 }')
+    if [ "${resolution}" -le 0 ]; then
+      echo "Error: could not determine bin size from ${hic}; pass -r" >&2
+      exit 1
+    fi
+    printf "### bin size (detected): %s\n" "${resolution}" >&2
+  fi
+
+  ### bins occupied by a promoter midpoint. Every pair link needs has a promoter
+  ### on one side (numerator: CRE x promoter, denominator: candidate x promoter),
+  ### so anchoring the extraction on promoters loses nothing.
+  zcat -f ${promoter} \
+  | awk --assign res=${resolution} 'BEGIN{OFS="\t"}
+    { mid = int(($2 + $3)/2); print $1, int(mid/res)*res }' \
+  | sort -u \
+  > ${tmpdir}/prom_bins.tsv
+  printf "### promoter bins: %s\n" "$(wc -l < ${tmpdir}/prom_bins.tsv)" >&2
+
+  ### One pass over the contact file. The pairs go to a temporary file and the
+  ### header to stdout, because the power law can only be fitted once every
+  ### distance has been seen, and it belongs at the top of the output.
+  ###
+  ### The fit is over sum/n_expected, i.e. bin pairs absent from the file counted
+  ### as zero contact. That is what makes the fitted curve the expected contact at
+  ### a distance, which is in turn what lets link add it to a measured value
+  ### without a free scale factor. Fitting over the recorded pairs alone would
+  ### give a curve well above the mean and break that.
+  ###
+  ### With -o the distance profile is written out too, with n_observed and
+  ### n_expected kept separate so the choice above can be checked rather than
+  ### taken on trust.
+  zcat -f ${hic} \
+  | awk --assign res=${resolution} \
+        --assign maxd=${maxDistance} \
+        --assign pmax=${profileMax} \
+        --assign prof="${profile-}" \
+        --assign out=${tmpdir}/contacts.tsv \
+    'BEGIN{ OFS="\t"; keep = (maxd > pmax ? maxd : pmax) }
+     NR == FNR { pb[$1 SUBSEP $2] = 1; next }
+     /^#/ { next }
+     {
+       if (!($1 in chrmin) || $2 < chrmin[$1]) chrmin[$1] = $2
+       if ($3 > chrmax[$1]) chrmax[$1] = $3
+       d = $3 - $2
+       if (d < 0) { d = -d }
+       if (d > keep) { next }
+       if (d <= pmax) { psum[d] += $4; pn[d]++ }
+       if (d > maxd) { next }
+       if ( (($1 SUBSEP $2) in pb) || (($1 SUBSEP $3) in pb) ) { print $1, $2, $3, $4 > out }
+     }
+     ### Bin pairs at distance d that could exist, over the span the file actually
+     ### covers. Assuming every chromosome starts at zero would inflate this for a
+     ### file holding only part of one, which is how the fitted curve ends up far
+     ### below the data it came from.
+     function n_expected(d,   c, nb, e) {
+       e = 0
+       for (c in chrmax) {
+         nb = (chrmax[c] - chrmin[c])/res + 1 - d/res
+         if (nb > 0) e += nb
+       }
+       return e
+     }
+     END{
+       if (prof != "") {
+         print "distance", "sum_contact", "n_observed", "n_expected" > prof
+         for (d in psum) { print d, psum[d], pn[d], n_expected(d) > prof }
+       }
+       ### ordinary least squares of log(mean) on log(distance+1), over the range
+       ### link actually uses. Each distance counts once, so the short distances
+       ### that carry most of the pairs do not swamp the rest.
+       n = 0
+       for (d = res; d <= maxd; d += res) {
+         if (!(d in psum)) { continue }
+         e = n_expected(d)
+         if (e <= 0) { continue }
+         m = psum[d]/e
+         if (m <= 0) { continue }
+         x = log(d + 1); y = log(m)
+         n++; sx += x; sy += y; sxx += x*x; sxy += x*y
+       }
+       if (n < 2) { print "Error: too few distances to fit the power law" > "/dev/stderr"; exit 1 }
+       slope = (n*sxy - sx*sy) / (n*sxx - sx*sx)
+       inter = (sy - slope*sx) / n
+       ### residual variance, to show how well a power law describes this file
+       for (d = res; d <= maxd; d += res) {
+         if (!(d in psum)) { continue }
+         e = n_expected(d); if (e <= 0) { continue }
+         m = psum[d]/e; if (m <= 0) { continue }
+         x = log(d + 1); r = log(m) - (inter + slope*x)
+         ss += r*r; my += log(m)
+       }
+       my /= n
+       for (d = res; d <= maxd; d += res) {
+         if (!(d in psum)) { continue }
+         e = n_expected(d); if (e <= 0) { continue }
+         m = psum[d]/e; if (m <= 0) { continue }
+         tt += (log(m) - my)^2
+       }
+       ### how much of the contact map is actually recorded, over the range link
+       ### uses. link cannot tell a bin pair that was measured as zero from one
+       ### that is simply absent, so this is what decides whether the power-law
+       ### distance expectation is still needed: a sparse map needs it to keep unrecorded
+       ### pairs from collapsing to zero, a dense one does not.
+       ### only over distances the file actually spans: a contact map that stops
+       ### short of maxDistance would otherwise be counted as missing everything
+       ### beyond its own range.
+       obs = 0; exp_tot = 0
+       for (d = res; d <= maxd; d += res) {
+         if (!(d in pn)) { continue }
+         e = n_expected(d); if (e <= 0) { continue }
+         exp_tot += e; obs += pn[d]
+       }
+       printf "#CREate hicprep\n"
+       printf "#resolution=%d\n", res
+       printf "#gamma=%.9g\n", -slope
+       printf "#scale=%.9g\n", inter
+       printf "#fitDistances=%d\n", n
+       printf "#fitR2=%.6f\n", (tt > 0 ? 1 - ss/tt : 0)
+       printf "#recordedFraction=%.4f\n", (exp_tot > 0 ? obs/exp_tot : 0)
+       printf "#chrom\tbin1\tbin2\tcontact\n"
+     }' ${tmpdir}/prom_bins.tsv -
+
+  cat ${tmpdir}/contacts.tsv
+}
+
+
+cmd_link ()
+{
+  windowSize=1000000
+  denomWindow=5000000
+  power_law_alpha=1.0
+  activity_exponent=0.2
+  promoter_exponent=1.0
+  overlapWinner=promoter
+  pseudoCpm=0.001
+  distanceFloor=5000
+  scoreCutoff=
+  promCutoff=1
+  score_field=ABC
+  noPseudo=no
+
+  ### handle options
+  while getopts k:r:t:i:NO:w:W:a:b:B:d:f:S:p:s: opt
   do
     case ${opt} in
     k) prom_activity=${OPTARG};;
     r) cre=${OPTARG};;
+    t) link_target=${OPTARG};;
+    i) contacts=${OPTARG};;
+    N) noPseudo=yes;;
+    O) overlapWinner=${OPTARG};;
     w) windowSize=${OPTARG};;
+    W) denomWindow=${OPTARG};;
     a) power_law_alpha=${OPTARG};;
+    b) activity_exponent=${OPTARG};;
+    B) promoter_exponent=${OPTARG};;
     d) pseudoCpm=${OPTARG};;
-    i) scoreCutoffAci=${OPTARG};;
+    f) distanceFloor=${OPTARG};;
+    S) scoreCutoff=${OPTARG};;
     p) promCutoff=${OPTARG};;
     s) score_field=${OPTARG};;
     *) usage;;
@@ -2065,16 +2383,99 @@ cmd_link ()
 
   if [ ! -n "${prom_activity-}" ]; then usage; fi
   if [ ! -n "${cre-}" ]; then usage; fi
+
+  ### -t defaults to -r: with no target given, link scores the CRE candidates
+  if [ ! -n "${link_target-}" ]; then link_target=${cre}; fi
+  if [ "${overlapWinner}" != "promoter" ] && [ "${overlapWinner}" != "cre" ]; then
+    echo "Error: -O must be promoter or cre (got '${overlapWinner}')" >&2
+    usage
+  fi
   if [ "${score_field}" != "ABC" ] && [ "${score_field}" != "ACI" ]; then
     echo "Error: -s must be ABC or ACI (got '${score_field}')" >&2
     usage
+  fi
+
+  ### The denominator must cover at least the reported pairs, otherwise a pair
+  ### could be absent from its own normalizer.
+  if [ ${denomWindow} -lt ${windowSize} ]; then
+    echo "Warning: -W (${denomWindow}) < -w (${windowSize}); raising -W to ${windowSize}" >&2
+    denomWindow=${windowSize}
+  fi
+
+  ### -S cuts on the score that is actually reported, so its default has to follow
+  ### -s: the two live on different scales and a single number cannot serve both.
+  if [ ! -n "${scoreCutoff}" ]; then
+    if [ "${score_field}" = "ACI" ]; then scoreCutoff=1; else scoreCutoff=0.001; fi
   fi
 
   ### setup tmpdir
   tmpdir=$(mktemp -d -p ${TMPDIR:-/tmp})
   trap "test -d $tmpdir && rm -rf $tmpdir" 0 1 2 3 15
 
-  bedtools window -w ${windowSize} -a ${cre} -b ${prom_activity} \
+  ### With -i the contact term stops being a pure function of distance. The header
+  ### hicprep wrote carries the bin size and a power law fitted to that same file,
+  ### which is what makes the two commensurate:
+  ###
+  ###   contact(pair) = [ powerlaw(dist_eff) + measured ] / ( 2 * powerlaw(100kb) )
+  ###
+  ### The power law is the expected contact at that distance, so a pair with no
+  ### recorded contact falls back to it rather than to zero, and a pair with the
+  ### typical contact for its distance comes out at 1 -- the same reading as the
+  ### plain (dist/100kb)^-alpha it replaces. Hence the 2 in the denominator: the
+  ### expectation contributes once through the power law and once through the
+  ### measurement.
+  ### Read once and split, so that -i also accepts a pipe or a process
+  ### substitution, which cannot be reopened for the header and again for the data.
+  useContacts=no
+  if [ -n "${contacts-}" ]; then
+    useContacts=yes
+    zcat -f ${contacts} \
+    | awk --assign hdr=${tmpdir}/hic_header.txt \
+      '/^#/ { print > hdr; next } { print }' \
+    > ${tmpdir}/hic.tsv
+    hicRes=$(  sed -n 's/^#resolution=//p' ${tmpdir}/hic_header.txt | head -1)
+    hicGamma=$(sed -n 's/^#gamma=//p'      ${tmpdir}/hic_header.txt | head -1)
+    hicScale=$(sed -n 's/^#scale=//p'      ${tmpdir}/hic_header.txt | head -1)
+    if [ ! -n "${hicRes}" ] || [ ! -n "${hicGamma}" ] || [ ! -n "${hicScale}" ]; then
+      echo "Error: ${contacts} has no #resolution/#gamma/#scale header; produced by hicprep?" >&2
+      exit 1
+    fi
+    hicFrac=$(sed -n 's/^#recordedFraction=//p' ${tmpdir}/hic_header.txt | head -1)
+    printf "### contacts: %s (bin %s, gamma %s, scale %s%s)\n" \
+           "${contacts}" "${hicRes}" "${hicGamma}" "${hicScale}" \
+           "${hicFrac:+, recorded ${hicFrac}}" >&2
+
+    ### -N drops the distance expectation that keeps an unrecorded pair from scoring zero,
+    ### which is safe only when nearly every pair is recorded.
+    if [ "${noPseudo}" = "yes" ] && [ -n "${hicFrac-}" ]; then
+      if awk --assign f=${hicFrac} 'BEGIN{ exit !(f < 0.9) }'; then
+        echo "Warning: -N with only ${hicFrac} of pairs recorded; unrecorded pairs will score zero" >&2
+      fi
+    fi
+  else
+    : > ${tmpdir}/hic.tsv
+  fi
+
+  ### Elements for the ABC denominator:
+  ###   Activities of all promoters and CREs that do not overlap any promoters are
+  ###   accumulated. overlapWinner decide the source when promoters and CREs overlap. 
+  if [ "${overlapWinner}" = "promoter" ]; then
+    { zcat -f ${prom_activity} | awk 'BEGIN{OFS="\t"}{print $1, $2, $3, $5, "P"}' ;
+      bedtools intersect -a ${cre} -b ${prom_activity} -v \
+      | awk 'BEGIN{OFS="\t"}{print $1, $2, $3, $5, "C"}' ; }
+  else
+    { zcat -f ${cre} | awk 'BEGIN{OFS="\t"}{print $1, $2, $3, $5, "C"}' ;
+      bedtools intersect -a ${prom_activity} -b ${cre} -v \
+      | awk 'BEGIN{OFS="\t"}{print $1, $2, $3, $5, "P"}' ; }
+  fi \
+  | awk 'BEGIN{OFS="\t"} !seen[$1 FS $2 FS $3]++' \
+  | sort -k1,1 -k2,2n \
+  > ${tmpdir}/candidates.bed
+
+  bedtools window -w ${denomWindow} -a ${prom_activity} -b ${tmpdir}/candidates.bed \
+  > ${tmpdir}/den_pairs.tsv
+
+  bedtools window -w ${windowSize} -a ${link_target} -b ${prom_activity} \
   | awk 'BEGIN{OFS="\t"}
     function is_ovlp(c1,s1,e1,c2,s2,e2 ) {
       flag = "no"
@@ -2095,7 +2496,60 @@ cmd_link ()
       flag = is_ovlp( a_chrom, a_chromStart, a_chromEnd, b_chrom, b_chromStart, b_chromEnd)
       if ( flag == "no" ) { print }
     }' \
-  | gzip -c > ${tmpdir}/cre_annP.bed2bed.gz
+  > ${tmpdir}/num_pairs.tsv
+
+  ### Both pair sets get their contact from the same pass, so the contact file is
+  ### read once. Without -i it is empty and contact() is the plain power law,
+  ### leaving the output identical to a run without contacts.
+  awk --assign alpha=${power_law_alpha} \
+      --assign beta=${activity_exponent} \
+      --assign betaP=${promoter_exponent} \
+      --assign pc=${pseudoCpm} \
+      --assign floor=${distanceFloor} \
+      --assign useHic=${useContacts} \
+      --assign noPseudo=${noPseudo} \
+      --assign res=${hicRes:-5000} \
+      --assign gamma=${hicGamma:-1} \
+      --assign scale=${hicScale:-0} \
+      --assign denOut=${tmpdir}/abc_denominator.tsv \
+      --assign numOut=${tmpdir}/cre_annP.bed2bed \
+    'BEGIN{
+       OFS="\t"
+       ### the value every pair is divided by, so that a pair at 100kb carrying the
+       ### contact typical for that distance reads 1, as it does without -i. The
+       ### expectation enters twice when it is kept and once when -N drops it.
+       if (useHic == "yes") {
+         norm = exp(scale - gamma*log(100000 + 1))
+         if (noPseudo != "yes") { norm = 2 * norm }
+       }
+     }
+     function contact(chrom, m1, m2,   d, b1, b2, t, pl, h) {
+       d = m1 - m2
+       if (d < 0) { d = -d }
+       if (d < floor) { d = floor }
+       if (useHic != "yes") { return (d/100000)^(-alpha) }
+       b1 = int(m1/res)*res; b2 = int(m2/res)*res
+       if (b1 > b2) { t = b1; b1 = b2; b2 = t }
+       h = ((chrom SUBSEP b1 SUBSEP b2) in H) ? H[chrom SUBSEP b1 SUBSEP b2] : 0
+       if (noPseudo == "yes") { return h / norm }
+       pl = exp(scale - gamma*log(d + 1))
+       return (pl + h) / norm
+     }
+     FILENAME == hicFile { H[$1 SUBSEP ($2+0) SUBSEP ($3+0)] = $4; next }
+     FILENAME == denFile {
+       key = $1 "_" $2 "_" $3 "_" $4
+       den[key] += ($10 + pc)^($11 == "P" ? betaP : beta) * contact($1, ($2+$3)/2, ($8+$9)/2)
+       next
+     }
+     FILENAME == numFile { print $0, contact($1, ($2+$3)/2, ($11+$12)/2) > numOut ; next}
+     { print "Error: unexpected input " FILENAME > "/dev/stderr"; exit 1 }
+     END{ for (k in den) print k, den[k] > denOut }' \
+    hicFile=${tmpdir}/hic.tsv  ${tmpdir}/hic.tsv \
+    denFile=${tmpdir}/den_pairs.tsv ${tmpdir}/den_pairs.tsv \
+    numFile=${tmpdir}/num_pairs.tsv ${tmpdir}/num_pairs.tsv
+
+  gzip -c ${tmpdir}/abc_denominator.tsv > ${tmpdir}/abc_denominator.tsv.gz
+  gzip -c ${tmpdir}/cre_annP.bed2bed    > ${tmpdir}/cre_annP.bed2bed.gz
 
 
   cat <<EOF | R --slave
@@ -2105,29 +2559,26 @@ cmd_link ()
   df = read.table("${tmpdir}/cre_annP.bed2bed.gz", sep="\t")
   colnames(df) = c(
     "a.chrom","a.chromStart","a.chromEnd","a.name","a.score","a.strand","a.thickStart","a.thickEnd","a.color",
-    "b.chrom","b.chromStart","b.chromEnd","b.name","b.score","b.strand"
+    "b.chrom","b.chromStart","b.chromEnd","b.name","b.score","b.strand",
+    "estimatedContacts"
   )
 
-  # Compute ACI (Activity-Contact Index)
-  #
-  # estimatedContacs based on power law dist. As the estimation is generally
-  # for active loci, we set the parmeter (alpha) as one for open chromatin (see below).
-  # ACI is scaled so that a parir consisting of CREs and annP with 1cpm in 100k distance takes 1
-  #
-  # note:
-  # - alpha = 2.1, 1.5, 0 for open, transition, and closed mode in SBS model
-  #   Pombo and Nicodemi, Transcription 2014 (PMID: 25764220)
-  # - dist is based on the unit of 1M
-  #
+  denom = read.table("${tmpdir}/abc_denominator.tsv.gz", sep="\t",
+                     quote="", comment.char="",
+                     col.names=c("tgt.key","abcDenominator"))
+
   df = df %>%
     mutate( dist = abs((a.chromStart + a.chromEnd)/2 - (b.chromStart + b.chromEnd)/2 ) * 1e-6 ) %>%
-    mutate( estimatedContacts = 1/( (dist)^${power_law_alpha}) ) %>%
+    mutate( dist.eff = pmax( dist, ${distanceFloor} * 1e-6 ) ) %>%
     mutate( expCre = a.score , expAnnP = b.score) %>%
     mutate( expCre.pc = expCre + ${pseudoCpm} , expAnnP.pc = expAnnP + ${pseudoCpm} ) %>%
-    mutate( ACI = estimatedContacts * expCre.pc * expAnnP.pc / 10^${power_law_alpha} ) %>%
-    group_by( b.name ) %>%
-    mutate( ABC = ACI / sum(ACI) ) %>%
-    filter( ACI >= ${scoreCutoffAci} ) %>%
+    mutate( aciNumerator = (expCre.pc)^${activity_exponent} * estimatedContacts ) %>%
+    mutate( ACI = aciNumerator ) %>%
+    mutate( tgt.key = paste(b.chrom, b.chromStart, b.chromEnd, b.name, sep="_") ) %>%
+    left_join( denom, by="tgt.key" ) %>%
+    mutate( ABC = ifelse( is.na(abcDenominator) | abcDenominator <= 0,
+                          0, aciNumerator / abcDenominator ) ) %>%
+    filter( ${score_field} >= ${scoreCutoff} ) %>%
     filter( expAnnP >= ${promCutoff} ) %>%
     mutate( newName = paste0(
       "src_id:"       , gsub("|", "|src_", a.name, fixed=TRUE),
@@ -2140,7 +2591,6 @@ cmd_link ()
       "|link_ABC:"    , signif(ABC,4)
     ) ) %>%
     mutate( newScore = signif(${score_field},4) ) %>%
-    ungroup() %>%
     select(
       a.chrom, a.chromStart, a.chromEnd,
       b.chrom, b.chromStart, b.chromEnd,
@@ -2269,6 +2719,10 @@ case "${1:-}" in
   creact)
     shift;
     cmd_creact "$@"
+    ;;
+  hicprep)
+    shift;
+    cmd_hicprep "$@"
     ;;
   link)
     shift;
